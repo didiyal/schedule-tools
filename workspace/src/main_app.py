@@ -115,8 +115,9 @@ class MainApp:
         card_inp_inner.pack(fill=tk.X, padx=12, pady=12)
 
         self.entry = tk.Entry(card_inp_inner, bg=C["bg"], fg=C["text"],
-                              insertbackground=C["blue"], relief=tk.FLAT,
-                              font=(FONT, 12), bd=0)
+                              insertbackground=C["blue"], relief=tk.SOLID,
+                              font=(FONT, 12), bd=1,
+                              highlightthickness=0)
         self.entry.pack(side=tk.LEFT, fill=tk.X, expand=True, ipady=8, padx=(0, 10))
         self.entry.bind("<Return>", lambda e: self._add_todo())
         self.entry.focus_set()
@@ -342,9 +343,11 @@ class MainApp:
                 hint.pack(fill=tk.X)
                 self._cards.append(hint)
 
+            seq = 0
             for w in today_items:
+                seq += 1
                 day_total += w.elapsed
-                card = TodoCard(self.card_frame, w, show_date=False)
+                card = TodoCard(self.card_frame, w, seq=seq, show_date=False)
                 card.callback_click = self._on_card_click
                 card.callback_double = self._on_card_double
                 card.callback_right = self._on_card_right_click
@@ -358,8 +361,10 @@ class MainApp:
                 hdr.pack(fill=tk.X)
                 self._cards.append(hdr)
 
+                seq = 0
                 for w in cross_items:
-                    card = TodoCard(self.card_frame, w, show_date=True)
+                    seq += 1
+                    card = TodoCard(self.card_frame, w, seq=seq, show_date=True)
                     card.callback_click = self._on_card_click
                     card.callback_double = self._on_card_double
                     card.callback_right = self._on_card_right_click
@@ -386,10 +391,12 @@ class MainApp:
                 not getattr(w, "starred", False), getattr(w, "_order", 0)))
 
             day_total = 0
+            seq = 0
             for w in sorted_todos:
+                seq += 1
                 if not w.completed:
                     day_total += w.elapsed
-                card = TodoCard(self.card_frame, w, show_date=False)
+                card = TodoCard(self.card_frame, w, seq=seq, show_date=False)
                 card.callback_click = self._on_card_click
                 card.callback_double = self._on_card_double
                 card.callback_right = self._on_card_right_click

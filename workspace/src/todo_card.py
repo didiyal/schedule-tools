@@ -1,16 +1,27 @@
 import tkinter as tk
 from .constants import C, FONT
 from .utils import fmt_time, fmt_date_short
+from .tooltip import ToolTip
+
+# 带圈数字 ①–⑳
+_CIRCLED = "①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳"
+
+
+def _circled(n):
+    if 1 <= n <= len(_CIRCLED):
+        return _CIRCLED[n - 1]
+    return f"({n})"
 
 
 class TodoCard(tk.Frame):
     """列表中的待办卡片 — 替代 Listbox 纯文本行"""
 
-    def __init__(self, parent, todo_widget, show_date=False, **kw):
+    def __init__(self, parent, todo_widget, seq=0, show_date=False, **kw):
         super().__init__(parent, bg=C["surface"], cursor="hand2",
                          highlightthickness=0, bd=0, **kw)
         self.todo_widget = todo_widget
         w = todo_widget
+        self._seq = seq
 
         # ── 左侧色条 ──
         accent_color = self._accent_color(w)
@@ -26,6 +37,12 @@ class TodoCard(tk.Frame):
         # 左侧图标组
         icons = tk.Frame(content, bg=C["surface"])
         icons.pack(side=tk.LEFT)
+
+        # ① 序号
+        seq_text = _circled(seq) if seq > 0 else ""
+        self.seq_lbl = tk.Label(icons, text=seq_text, bg=C["surface"],
+                                fg=C["text_sec"], font=(FONT, 10), width=1)
+        self.seq_lbl.pack(side=tk.LEFT)
 
         # ★ 重点标记
         star_text = "★" if w.starred else ""
@@ -49,6 +66,9 @@ class TodoCard(tk.Frame):
         self.text_lbl = tk.Label(content, text=w.text, bg=C["surface"], fg=text_fg,
                                  font=(FONT, 11), anchor="w")
         self.text_lbl.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        # 长文字悬浮提示
+        ToolTip(self.text_lbl, lambda: w.text)
 
         # ── 右侧信息 ──
         right = tk.Frame(content, bg=C["surface"])
@@ -175,10 +195,16 @@ class TodoCard(tk.Frame):
                 except Exception:
                     pass
 
+    def set_sequence(self, seq):
+        self._seq = seq
+        self.seq_lbl.configure(text=_circled(seq) if seq > 0 else "")
+
     def refresh(self):
         """根据 todo_widget 当前状态刷新显示"""
         w = self.todo_widget
         self.accent.configure(bg=self._accent_color(w))
+
+        self.seq_lbl.configure(text=_circled(self._seq) if self._seq > 0 else "")
 
         star_text = "★" if w.starred else ""
         star_fg = C["orange"] if w.starred else C["text_ter"]
