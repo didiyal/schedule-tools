@@ -47,6 +47,7 @@ class ToolTip:
         ).pack()
 
         # 放在控件下方
+        self.tip.update_idletasks()
         x = self.widget.winfo_rootx()
         y = self.widget.winfo_rooty() + self.widget.winfo_height() + 4
         # 不超出屏幕右侧

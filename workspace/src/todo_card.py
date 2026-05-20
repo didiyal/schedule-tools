@@ -109,13 +109,11 @@ class TodoCard(tk.Frame):
         self.bind("<Button-3>", self._on_right_click)
         self.bind("<Enter>", self._on_enter)
         self.bind("<Leave>", self._on_leave)
-        # 让子控件也响应
+        # 子控件只绑定点击，悬停统一由外层 Frame 处理避免闪烁
         for child in self._all_children(self):
             child.bind("<Button-1>", self._on_click)
             child.bind("<Double-Button-1>", self._on_double_click)
             child.bind("<Button-3>", self._on_right_click)
-            child.bind("<Enter>", self._on_enter)
-            child.bind("<Leave>", self._on_leave)
 
     @staticmethod
     def _all_children(widget):
@@ -176,6 +174,8 @@ class TodoCard(tk.Frame):
             self.callback_right(self.todo_widget.todo_id, event)
 
     def _on_enter(self, event):
+        if event.widget is not self:
+            return
         if not self._selected:
             self.configure(bg=C["bg"])
             for child in self._all_children(self):
@@ -186,6 +186,8 @@ class TodoCard(tk.Frame):
                     pass
 
     def _on_leave(self, event):
+        if event.widget is not self:
+            return
         if not self._selected:
             self.configure(bg=C["surface"])
             for child in self._all_children(self):

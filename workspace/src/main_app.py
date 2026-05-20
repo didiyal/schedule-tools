@@ -1,4 +1,5 @@
 import tkinter as tk
+from tkinter import messagebox
 import json
 import os
 import sys
@@ -34,8 +35,11 @@ class MainApp:
         self._cards: list = []  # TodoCard | SectionHeader | EmptyHint
         self._selected_tid: str | None = None
 
+        self._save_after_id = None
+        self._loading = True
         self._build_ui()
         self._load_todos()
+        self._loading = False
         self._refresh_view()
 
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -166,9 +170,10 @@ class MainApp:
                              lambda e: self.canvas.configure(
                                  scrollregion=self.canvas.bbox("all")))
 
-        # 鼠标滚轮
-        self.canvas.bind("<Enter>", self._bind_mousewheel)
-        self.canvas.bind("<Leave>", self._unbind_mousewheel)
+        # 鼠标滚轮 — 直接绑定到 canvas
+        self.canvas.bind("<MouseWheel>", self._on_mousewheel)
+        self.canvas.bind("<Button-4>", self._on_mousewheel)
+        self.canvas.bind("<Button-5>", self._on_mousewheel)
 
         # ── 底部按钮 ──
         bf = tk.Frame(self.root, bg=C["bg"])
@@ -213,14 +218,14 @@ class MainApp:
     def _on_canvas_configure(self, event):
         self.canvas.itemconfig(self.card_frame_id, width=event.width)
 
-    def _bind_mousewheel(self, event):
-        self.canvas.bind_all("<MouseWheel>", self._on_mousewheel)
-
-    def _unbind_mousewheel(self, event):
-        self.canvas.unbind_all("<MouseWheel>")
-
     def _on_mousewheel(self, event):
-        self.canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+        if event.num == 4:
+            delta = -1
+        elif event.num == 5:
+            delta = 1
+        else:
+            delta = event.delta / 120
+        self.canvas.yview_scroll(int(-delta), "units")
 
     # ── 筛选 ──
     def _set_filter(self, state):
@@ -280,18 +285,19 @@ class MainApp:
         w._date = date or self.current_date
 
         self.todos[todo_id] = w
-        self._refresh_view()
-        if hasattr(self, "entry") and text is not None:
-            self.entry.delete(0, tk.END)
-        self._save()
+        if not self._loading:
+            self._refresh_view()
+            if hasattr(self, "entry") and text is not None:
+                self.entry.delete(0, tk.END)
+            self._schedule_save()
 
     def _on_todo_hidden(self, todo_id):
         self._refresh_view()
-        self._save()
+        self._schedule_save()
 
     def _on_todo_state_change(self):
         self._refresh_view()
-        self._save()
+        self._schedule_save()
 
     # ── 视图渲染 ────────────────────────────────────────
     def _refresh_view(self):
@@ -428,7 +434,7 @@ class MainApp:
         if tid in self.todos:
             self.todos[tid].show()
             self._refresh_view()
-            self._save()
+            self._schedule_save()
 
     def _on_card_right_click(self, tid, event):
         self._select_card(tid)
@@ -523,7 +529,7 @@ class MainApp:
 
         self._refresh_view()
         self._select_card(tid)
-        self._save()
+        self._schedule_save()
 
     # ── 操作 ──
     def _toggle_visible(self):
@@ -538,7 +544,7 @@ class MainApp:
             w.show()
         self._refresh_view()
         self._select_card(tid)
-        self._save()
+        self._schedule_save()
 
     def _toggle_star_selected(self):
         tid = self._get_selected_id()
@@ -549,7 +555,7 @@ class MainApp:
         w._build_menu()
         self._refresh_view()
         self._select_card(tid)
-        self._save()
+        self._schedule_save()
 
     def _toggle_complete_selected(self):
         tid = self._get_selected_id()
@@ -563,7 +569,7 @@ class MainApp:
         w._build_menu()
         self._refresh_view()
         self._select_card(tid)
-        self._save()
+        self._schedule_save()
 
     def _edit_selected(self):
         tid = self._get_selected_id()
@@ -596,7 +602,7 @@ class MainApp:
                 w.set_text(new_text)
                 self._refresh_view()
                 self._select_card(tid)
-                self._save()
+                self._schedule_save()
             dlg.destroy()
 
         entry.bind("<Return>", lambda e: save())
@@ -621,7 +627,7 @@ class MainApp:
             w._date = new_date
             self._refresh_view()
             self._select_card(tid)
-            self._save()
+            self._schedule_save()
 
         DatePickerDialog(self.root, current, set_date)
 
@@ -629,12 +635,18 @@ class MainApp:
         tid = self._get_selected_id()
         if not tid:
             return
-        w = self.todos.pop(tid, None)
-        if w:
-            w.destroy()
+        w = self.todos.get(tid)
+        if not w:
+            return
+        if w.elapsed > 0 and not messagebox.askyesno(
+            "确认删除", f"确定删除「{w.text}」吗？\n已记录 {fmt_time(w.elapsed)}。",
+            parent=self.root):
+            return
+        self.todos.pop(tid, None)
+        w.destroy()
         self._selected_tid = None
         self._refresh_view()
-        self._save()
+        self._schedule_save()
 
     def _start_all(self):
         for card in self._cards:
@@ -651,6 +663,18 @@ class MainApp:
         self._refresh_view()
 
     # ── 持久化 ──────────────────────────────────────────
+    def _schedule_save(self):
+        """延迟 300ms 合并保存，避免频繁写盘"""
+        if self._loading:
+            return
+        if self._save_after_id:
+            self.root.after_cancel(self._save_after_id)
+        self._save_after_id = self.root.after(300, self._do_save)
+
+    def _do_save(self):
+        self._save_after_id = None
+        self._save()
+
     def _save(self):
         data = []
         for w in self.todos.values():
@@ -659,10 +683,21 @@ class MainApp:
             data.append(d)
         try:
             os.makedirs(os.path.dirname(SAVE_FILE), exist_ok=True)
-            with open(SAVE_FILE, "w", encoding="utf-8") as f:
+            tmp = SAVE_FILE + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
+            os.replace(tmp, SAVE_FILE)  # 原子替换，防止写一半崩溃
+            # 滚动备份
+            bak = SAVE_FILE + ".bak"
+            try:
+                with open(SAVE_FILE, "r", encoding="utf-8") as src:
+                    with open(bak, "w", encoding="utf-8") as dst:
+                        dst.write(src.read())
+            except Exception:
+                pass
         except Exception:
-            pass
+            import traceback
+            traceback.print_exc()
 
     def _load_todos(self):
         if not os.path.exists(SAVE_FILE):
@@ -670,24 +705,38 @@ class MainApp:
         try:
             with open(SAVE_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
-            for item in data:
-                self._add_todo(
-                    text=item["text"],
-                    elapsed=item.get("elapsed", 0),
-                    x=item.get("x"),
-                    y=item.get("y"),
-                    todo_id=item.get("id"),
-                    visible=item.get("visible", True),
-                    date=item.get("date", get_today_str()),
-                    completed=item.get("completed", False),
-                    order=item.get("order"),
-                    starred=item.get("starred", False),
-                )
-            self._refresh_view()
         except Exception:
-            pass
+            import traceback
+            traceback.print_exc()
+            # 尝试从备份恢复
+            bak = SAVE_FILE + ".bak"
+            if os.path.exists(bak):
+                try:
+                    with open(bak, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                except Exception:
+                    return
+            else:
+                return
+
+        for item in data:
+            self._add_todo(
+                text=item["text"],
+                elapsed=item.get("elapsed", 0),
+                x=item.get("x"),
+                y=item.get("y"),
+                todo_id=item.get("id"),
+                visible=item.get("visible", True),
+                date=item.get("date", get_today_str()),
+                completed=item.get("completed", False),
+                order=item.get("order"),
+                starred=item.get("starred", False),
+            )
 
     def _on_close(self):
+        if self._save_after_id:
+            self.root.after_cancel(self._save_after_id)
+            self._save_after_id = None
         self._save()
         self.root.destroy()
         sys.exit(0)

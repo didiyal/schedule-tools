@@ -32,7 +32,7 @@ class TodoWidget:
 
         # ── 标题栏 ──
         self.top = tk.Frame(self.card, bg=C["bg"], height=28)
-        self.top.pack(fil=tk.X, side=tk.TOP)
+        self.top.pack(fill=tk.X, side=tk.TOP)
         self.top.pack_propagate(False)
 
         display_text = self._truncate(self.text, 16)
