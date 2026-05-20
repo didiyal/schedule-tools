@@ -1,4 +1,5 @@
 import tkinter as tk
+import time
 from .constants import C, FONT
 from .utils import flat_btn, fmt_time
 from .tooltip import ToolTip
@@ -12,6 +13,8 @@ class TodoWidget:
         self.todo_id = todo_id
         self.text = text
         self.elapsed = elapsed
+        self._base_elapsed = elapsed  # 暂停时的累计秒数
+        self._started_at = None       # 启动时的 time.time()
         self.running = False
         self.completed = completed
         self._after_id = None
@@ -196,11 +199,13 @@ class TodoWidget:
         self._set_btn_enabled(self.btn_pause, False)
         self._set_btn_enabled(self.btn_reset, True)
 
-    # ── 计时 ──
+    # ── 计时（基于真实时钟，避免 after 累积漂移）──
     def start(self):
         if self.completed or self.running:
             return
         self.running = True
+        self._started_at = time.time()
+        self._base_elapsed = self.elapsed
         self._tick()
         self.top.configure(bg=C["blue_light"])
         self.title_lbl.configure(bg=C["blue_light"], fg=C["blue"])
@@ -218,6 +223,9 @@ class TodoWidget:
         if self._after_id:
             self.win.after_cancel(self._after_id)
             self._after_id = None
+        # 结算最终耗时
+        self.elapsed = self._base_elapsed + int(time.time() - self._started_at)
+        self.time_lbl.configure(text=fmt_time(self.elapsed))
         if not self.completed:
             self.top.configure(bg=C["bg"])
             self.title_lbl.configure(bg=C["bg"], fg=C["text"])
@@ -236,6 +244,7 @@ class TodoWidget:
         was_running = self.running
         self.pause()
         self.elapsed = 0
+        self._base_elapsed = 0
         self.time_lbl.configure(text=fmt_time(0))
         if was_running:
             self.start()
@@ -243,9 +252,9 @@ class TodoWidget:
     def _tick(self):
         if not self.running:
             return
-        self.elapsed += 1
+        self.elapsed = self._base_elapsed + int(time.time() - self._started_at)
         self.time_lbl.configure(text=fmt_time(self.elapsed))
-        self._after_id = self.win.after(1000, self._tick)
+        self._after_id = self.win.after(200, self._tick)  # 200ms 刷新，漂移自动修正
 
     @staticmethod
     def _set_btn_enabled(btn_frame, enabled):
@@ -266,14 +275,21 @@ class TodoWidget:
             y = self.win.winfo_y()
         except Exception:
             x, y = 100, 100
+        # 运行中则结算准确耗时
+        if self.running:
+            elapsed = self._base_elapsed + int(time.time() - self._started_at)
+        else:
+            elapsed = self.elapsed
         return {
             "id": self.todo_id,
             "text": self.text,
-            "elapsed": self.elapsed,
+            "elapsed": elapsed,
             "completed": self.completed,
             "x": x,
             "y": y,
             "visible": self.is_visible(),
             "order": self._order,
             "starred": self.starred,
+            "running": self.running,
+            "last_started_at": self._started_at if self.running else None,
         }

@@ -227,14 +227,20 @@ class TodoCard(tk.Frame):
 class SectionHeader(tk.Frame):
     """列表中的区块标题 — 不可点击"""
 
-    def __init__(self, parent, text, **kw):
+    def __init__(self, parent, text, compact=False, **kw):
         super().__init__(parent, bg=C["surface"],
                          highlightthickness=0, bd=0, **kw)
-        tk.Frame(self, bg=C["surface"], height=4).pack(fill=tk.X)
-        lbl = tk.Label(self, text=text, bg=C["surface"], fg=C["text_sec"],
-                       font=(FONT, 10, "bold"), anchor="w", padx=18)
-        lbl.pack(fill=tk.X)
-        tk.Frame(self, bg=C["surface"], height=2).pack(fill=tk.X)
+        if compact:
+            lbl = tk.Label(self, text=text, bg=C["surface"], fg=C["text_ter"],
+                           font=(FONT, 9), anchor="w", padx=26)
+            lbl.pack(fill=tk.X)
+            tk.Frame(self, bg=C["surface"], height=1).pack(fill=tk.X)
+        else:
+            tk.Frame(self, bg=C["surface"], height=4).pack(fill=tk.X)
+            lbl = tk.Label(self, text=text, bg=C["surface"], fg=C["text_sec"],
+                           font=(FONT, 10, "bold"), anchor="w", padx=18)
+            lbl.pack(fill=tk.X)
+            tk.Frame(self, bg=C["surface"], height=2).pack(fill=tk.X)
 
 
 class EmptyHint(tk.Frame):

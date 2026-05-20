@@ -3,6 +3,7 @@ from tkinter import messagebox
 import json
 import os
 import sys
+import time
 from datetime import datetime, timedelta
 
 if getattr(sys, 'frozen', False):
@@ -34,6 +35,8 @@ class MainApp:
         self.filter_state = "active"
         self._cards: list = []  # TodoCard | SectionHeader | EmptyHint
         self._selected_tid: str | None = None
+        self._search_term = ""
+        self._undo_action = None
 
         self._save_after_id = None
         self._loading = True
@@ -141,8 +144,15 @@ class MainApp:
                                        font=(FONT, 12, "bold"))
         self.list_title_lbl.pack(side=tk.LEFT)
 
-        tk.Label(lh, text="双击展开 · 右键更多", bg=C["surface"], fg=C["text_ter"],
-                 font=(FONT, 9)).pack(side=tk.RIGHT)
+        # 搜索框
+        self.search_var = tk.StringVar()
+        self.search_var.trace_add("write", lambda *a: self._on_search_change())
+        self.search_entry = tk.Entry(lh, textvariable=self.search_var,
+                                      bg=C["bg"], fg=C["text"],
+                                      insertbackground=C["blue"],
+                                      relief=tk.SOLID, font=(FONT, 9), bd=1,
+                                      highlightthickness=0, width=18)
+        self.search_entry.pack(side=tk.RIGHT, ipady=2)
 
         tk.Frame(card_list, bg=C["border"], height=1).pack(fill=tk.X, padx=16)
 
@@ -174,6 +184,13 @@ class MainApp:
         self.canvas.bind("<MouseWheel>", self._on_mousewheel)
         self.canvas.bind("<Button-4>", self._on_mousewheel)
         self.canvas.bind("<Button-5>", self._on_mousewheel)
+
+        # 键盘快捷键 — 绑定到 card_frame
+        self.card_frame.bind("<Up>", lambda e: self._key_move(-1))
+        self.card_frame.bind("<Down>", lambda e: self._key_move(1))
+        self.card_frame.bind("<space>", lambda e: self._key_toggle_complete())
+        self.card_frame.bind("<Delete>", lambda e: self._delete_selected())
+        self.root.bind("<Control-z>", lambda e: self._key_undo())
 
         # ── 底部按钮 ──
         bf = tk.Frame(self.root, bg=C["bg"])
@@ -227,6 +244,65 @@ class MainApp:
             delta = event.delta / 120
         self.canvas.yview_scroll(int(-delta), "units")
 
+    # ── 键盘操作 ──
+    def _key_move(self, direction):
+        """上下键导航卡片列表"""
+        cards_only = [c for c in self._cards if isinstance(c, TodoCard)]
+        if not cards_only:
+            return
+        if not self._selected_tid:
+            self._select_card(cards_only[0].todo_widget.todo_id)
+            return
+        for i, c in enumerate(cards_only):
+            if c.todo_widget.todo_id == self._selected_tid:
+                ni = max(0, min(len(cards_only) - 1, i + direction))
+                self._select_card(cards_only[ni].todo_widget.todo_id)
+                # 滚动确保可见
+                self.canvas.yview_moveto(ni / max(1, len(cards_only)))
+                return
+
+    def _key_toggle_complete(self):
+        if self._selected_tid:
+            self._toggle_complete_selected()
+
+    def _save_undo(self, action, todo_id, snapshot=None):
+        self._undo_action = (action, todo_id, snapshot)
+
+    def _key_undo(self):
+        if not getattr(self, "_undo_action", None):
+            return
+        action, todo_id, snapshot = self._undo_action
+        self._undo_action = None
+        if action == "toggle_complete":
+            self._toggle_complete_selected()
+        elif action == "toggle_star":
+            self._toggle_star_selected()
+        elif action == "delete":
+            if snapshot:
+                self._add_todo(
+                    text=snapshot.get("text"), elapsed=snapshot.get("elapsed", 0),
+                    todo_id=snapshot.get("id"), visible=snapshot.get("visible", True),
+                    date=snapshot.get("date"), completed=snapshot.get("completed", False),
+                    order=snapshot.get("order"), starred=snapshot.get("starred", False),
+                )
+        elif action == "edit":
+            if snapshot and todo_id in self.todos:
+                self.todos[todo_id].set_text(snapshot)
+                self._refresh_view()
+                self._select_card(todo_id)
+                self._schedule_save()
+
+    # ── 搜索 ──
+    def _on_search_change(self):
+        term = self.search_var.get().strip()
+        if term == self._search_term:
+            return
+        self._search_term = term
+        # 300ms 防抖后刷新
+        if hasattr(self, "_search_after_id"):
+            self.root.after_cancel(self._search_after_id)
+        self._search_after_id = self.root.after(300, self._refresh_view)
+
     # ── 筛选 ──
     def _set_filter(self, state):
         self.filter_state = state
@@ -250,7 +326,8 @@ class MainApp:
     # ── 待办 CRUD ──────────────────────────────────────
     def _add_todo(self, text=None, elapsed=0, x=None, y=None,
                   todo_id=None, visible=True, date=None, completed=False,
-                  order=None, starred=False):
+                  order=None, starred=False, running=False,
+                  last_started_at=None):
         if text is None:
             text = self.entry.get().strip()
         if not text:
@@ -281,8 +358,17 @@ class MainApp:
             w.win.geometry(f"+{x}+{y}")
         if not visible:
             w.win.withdraw()
+        else:
+            w.show()
 
         w._date = date or self.current_date
+
+        # 恢复运行状态
+        if running and last_started_at and not completed:
+            catchup = int(time.time() - last_started_at)
+            w.elapsed = elapsed + catchup
+            w._base_elapsed = w.elapsed
+            w.start()
 
         self.todos[todo_id] = w
         if not self._loading:
@@ -318,6 +404,12 @@ class MainApp:
         self._cards = []
         self._selected_tid = None
 
+        # 搜索过滤
+        st = self._search_term.lower()
+
+        def _matches(w):
+            return not st or st in w.text.lower()
+
         today_str = self.current_date
 
         if self.filter_state == "active":
@@ -325,6 +417,8 @@ class MainApp:
             cross_items = []
             for tid, w in self.todos.items():
                 if w.completed:
+                    continue
+                if not _matches(w):
                     continue
                 w_date = getattr(w, "_date", get_today_str())
                 if w_date == today_str:
@@ -367,15 +461,31 @@ class MainApp:
                 hdr.pack(fill=tk.X)
                 self._cards.append(hdr)
 
-                seq = 0
+                # 按日期分组
+                groups = {}
                 for w in cross_items:
-                    seq += 1
-                    card = TodoCard(self.card_frame, w, seq=seq, show_date=True)
-                    card.callback_click = self._on_card_click
-                    card.callback_double = self._on_card_double
-                    card.callback_right = self._on_card_right_click
-                    card.pack(fill=tk.X)
-                    self._cards.append(card)
+                    dk = getattr(w, "_date", "")
+                    groups.setdefault(dk, []).append(w)
+
+                for dk in sorted(groups.keys()):
+                    group_items = groups[dk]
+                    if len(groups) > 1:
+                        sub = SectionHeader(self.card_frame,
+                                            f"  {fmt_date_cn(dk)} · {len(group_items)}项",
+                                            compact=True)
+                        sub.pack(fill=tk.X)
+                        self._cards.append(sub)
+
+                    seq = 0
+                    for w in group_items:
+                        seq += 1
+                        card = TodoCard(self.card_frame, w, seq=seq,
+                                        show_date=(len(groups) == 1))
+                        card.callback_click = self._on_card_click
+                        card.callback_double = self._on_card_double
+                        card.callback_right = self._on_card_right_click
+                        card.pack(fill=tk.X)
+                        self._cards.append(card)
 
             if not today_items and not cross_items:
                 hint = EmptyHint(self.card_frame, "暂无待办")
@@ -388,7 +498,8 @@ class MainApp:
 
         else:
             day_todos = {tid: w for tid, w in self.todos.items()
-                         if getattr(w, "_date", get_today_str()) == today_str}
+                         if getattr(w, "_date", get_today_str()) == today_str
+                         and _matches(w)}
 
             if self.filter_state == "completed":
                 day_todos = {tid: w for tid, w in day_todos.items() if w.completed}
@@ -550,6 +661,7 @@ class MainApp:
         tid = self._get_selected_id()
         if not tid:
             return
+        self._save_undo("toggle_star", tid)
         w = self.todos[tid]
         w.starred = not w.starred
         w._build_menu()
@@ -562,6 +674,7 @@ class MainApp:
         if not tid:
             return
         w = self.todos[tid]
+        self._save_undo("toggle_complete", tid)
         if w.completed:
             w.set_incomplete()
         else:
@@ -599,6 +712,7 @@ class MainApp:
         def save():
             new_text = entry.get().strip()
             if new_text:
+                self._save_undo("edit", tid, w.text)
                 w.set_text(new_text)
                 self._refresh_view()
                 self._select_card(tid)
@@ -642,6 +756,14 @@ class MainApp:
             "确认删除", f"确定删除「{w.text}」吗？\n已记录 {fmt_time(w.elapsed)}。",
             parent=self.root):
             return
+        # 保存撤销快照
+        snapshot = {
+            "id": w.todo_id, "text": w.text, "elapsed": w.elapsed,
+            "completed": w.completed, "visible": w.is_visible(),
+            "date": getattr(w, "_date", get_today_str()),
+            "order": w._order, "starred": w.starred,
+        }
+        self._save_undo("delete", tid, snapshot)
         self.todos.pop(tid, None)
         w.destroy()
         self._selected_tid = None
@@ -731,6 +853,8 @@ class MainApp:
                 completed=item.get("completed", False),
                 order=item.get("order"),
                 starred=item.get("starred", False),
+                running=item.get("running", False),
+                last_started_at=item.get("last_started_at"),
             )
 
     def _on_close(self):
