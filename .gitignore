@@ -1,0 +1,20 @@
+# PyInstaller
+*.exe
+*.spec
+build/
+dist/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# IDE
+.vscode/
+.idea/
+
+# Claude
+.claude/
+
+# Data (auto-generated at runtime)
+data/
