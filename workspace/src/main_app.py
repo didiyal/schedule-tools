@@ -18,6 +18,7 @@ from .utils import flat_btn, get_today_str, fmt_date_cn, fmt_time
 from .todo_widget import TodoWidget
 from .date_picker import DatePickerDialog
 from .todo_card import TodoCard, SectionHeader, EmptyHint
+from .timer_panel import TimerPanel
 
 
 class MainApp:
@@ -41,6 +42,7 @@ class MainApp:
         self._save_after_id = None
         self._loading = True
         self._build_ui()
+        self.timer_panel = TimerPanel(self.root, on_state_change=self._on_todo_state_change)
         self._load_todos()
         self._loading = False
         self._refresh_view()
@@ -353,14 +355,8 @@ class MainApp:
             self._next_order += 1
 
         w = TodoWidget(todo_id, text, elapsed, completed=completed,
-                       master_root=self.root, order=w_order, starred=starred)
-        if x and y:
-            w.win.geometry(f"+{x}+{y}")
-        if not visible:
-            w.win.withdraw()
-        else:
-            w.show()
-
+                       order=w_order, starred=starred)
+        w._change_callback = lambda: self._on_todo_state_change()
         w._date = date or self.current_date
 
         # 恢复运行状态
@@ -371,6 +367,11 @@ class MainApp:
             w.start()
 
         self.todos[todo_id] = w
+
+        # 恢复面板状态
+        if visible:
+            self.timer_panel.add_todo(w)
+
         if not self._loading:
             self._refresh_view()
             if hasattr(self, "entry") and text is not None:
@@ -378,11 +379,13 @@ class MainApp:
             self._schedule_save()
 
     def _on_todo_hidden(self, todo_id):
+        """保留以兼容旧回调（不再使用）"""
         self._refresh_view()
         self._schedule_save()
 
     def _on_todo_state_change(self):
         self._refresh_view()
+        self.timer_panel.refresh_all()
         self._schedule_save()
 
     # ── 视图渲染 ────────────────────────────────────────
@@ -543,7 +546,12 @@ class MainApp:
 
     def _on_card_double(self, tid):
         if tid in self.todos:
-            self.todos[tid].show()
+            w = self.todos[tid]
+            if w.completed:
+                return
+            if not w.is_visible():
+                self.timer_panel.add_todo(w)
+            self.timer_panel.show()
             self._refresh_view()
             self._schedule_save()
 
@@ -649,10 +657,9 @@ class MainApp:
             return
         w = self.todos[tid]
         if w.is_visible():
-            w.pause()
-            w.win.withdraw()
+            self.timer_panel.remove_todo(tid)
         else:
-            w.show()
+            self.timer_panel.add_todo(w)
         self._refresh_view()
         self._select_card(tid)
         self._schedule_save()
@@ -664,7 +671,6 @@ class MainApp:
         self._save_undo("toggle_star", tid)
         w = self.todos[tid]
         w.starred = not w.starred
-        w._build_menu()
         self._refresh_view()
         self._select_card(tid)
         self._schedule_save()
@@ -679,7 +685,6 @@ class MainApp:
             w.set_incomplete()
         else:
             w.set_complete()
-        w._build_menu()
         self._refresh_view()
         self._select_card(tid)
         self._schedule_save()
@@ -764,6 +769,8 @@ class MainApp:
             "order": w._order, "starred": w.starred,
         }
         self._save_undo("delete", tid, snapshot)
+        if self.timer_panel.has_todo(tid):
+            self.timer_panel.remove_todo(tid)
         self.todos.pop(tid, None)
         w.destroy()
         self._selected_tid = None
@@ -775,7 +782,10 @@ class MainApp:
             if isinstance(card, TodoCard):
                 w = card.todo_widget
                 if not w.completed:
+                    if not w.is_visible():
+                        self.timer_panel.add_todo(w)
                     w.start()
+        self.timer_panel.show()
         self._refresh_view()
 
     def _pause_all(self):
@@ -798,11 +808,15 @@ class MainApp:
         self._save()
 
     def _save(self):
-        data = []
+        data = {
+            "panel_x": self.timer_panel.get_position()[0],
+            "panel_y": self.timer_panel.get_position()[1],
+            "todos": [],
+        }
         for w in self.todos.values():
             d = w.to_dict()
             d["date"] = getattr(w, "_date", get_today_str())
-            data.append(d)
+            data["todos"].append(d)
         try:
             os.makedirs(os.path.dirname(SAVE_FILE), exist_ok=True)
             tmp = SAVE_FILE + ".tmp"
@@ -826,20 +840,30 @@ class MainApp:
             return
         try:
             with open(SAVE_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
+                raw = json.load(f)
         except Exception:
             import traceback
             traceback.print_exc()
-            # 尝试从备份恢复
             bak = SAVE_FILE + ".bak"
             if os.path.exists(bak):
                 try:
                     with open(bak, "r", encoding="utf-8") as f:
-                        data = json.load(f)
+                        raw = json.load(f)
                 except Exception:
                     return
             else:
                 return
+
+        # 兼容旧格式（纯数组）和新格式（含 panel 位置）
+        if isinstance(raw, list):
+            data = raw
+            panel_x, panel_y = 100, 100
+        else:
+            data = raw.get("todos", [])
+            panel_x = raw.get("panel_x", 100)
+            panel_y = raw.get("panel_y", 100)
+
+        self.timer_panel.set_position(panel_x, panel_y)
 
         for item in data:
             self._add_todo(
