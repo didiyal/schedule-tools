@@ -1,5 +1,5 @@
 import tkinter as tk
-import time
+from collections.abc import Callable
 from .constants import C, FONT
 from .utils import fmt_time
 from .tooltip import ToolTip
@@ -18,6 +18,7 @@ class TimerPanel:
         self._root = master_root
         self.on_state_change = on_state_change
         self._rows: dict[str, "TimerRow"] = {}
+        self._row_callbacks: dict[str, Callable] = {}  # todo_id → callback ref for removal
         self._tick_after_id = None
 
         # 吸附状态
@@ -258,7 +259,9 @@ class TimerPanel:
         if w.todo_id in self._rows:
             return
         w._in_panel = True
-        w._change_callback = lambda: self._on_row_change(w.todo_id)
+        cb = lambda: self._on_row_change(w.todo_id)
+        w.add_callback(cb)
+        self._row_callbacks[w.todo_id] = cb
 
         self._empty_hint.pack_forget()
 
@@ -276,7 +279,9 @@ class TimerPanel:
         row = self._rows.pop(todo_id)
         w = row.todo_widget
         w._in_panel = False
-        w._change_callback = None
+        cb = self._row_callbacks.pop(todo_id, None)
+        if cb:
+            w.remove_callback(cb)
         w.pause()
         row.destroy()
 

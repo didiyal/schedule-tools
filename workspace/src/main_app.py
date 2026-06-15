@@ -12,6 +12,7 @@ else:
     # workspace/src/main_app.py → tools/
     _BASE = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 SAVE_FILE = os.path.join(_BASE, "data", "todos.json")
+ARCHIVE_FILE = os.path.join(_BASE, "data", "archive.json")
 
 from .constants import C, FONT
 from .utils import flat_btn, get_today_str, fmt_date_cn, fmt_time
@@ -234,6 +235,10 @@ class MainApp:
                  C["red"], C["red_hover"], font_size=10, pady=6, padx=10).pack(
             side=tk.LEFT, padx=(0, 4))
 
+        flat_btn(bf, "🗄  清除已完成", self._archive_completed,
+                 C["text_ter"], C["red_light"], font_size=10, pady=6, padx=10).pack(
+            side=tk.RIGHT, padx=(0, 4))
+
     def _on_canvas_configure(self, event):
         self.canvas.itemconfig(self.card_frame_id, width=event.width)
 
@@ -355,9 +360,9 @@ class MainApp:
             self._next_order += 1
 
         w = TodoWidget(todo_id, text, elapsed, completed=completed,
-                       order=w_order, starred=starred)
-        w._change_callback = lambda: self._on_todo_state_change()
-        w._date = date or self.current_date
+                       order=w_order, starred=starred,
+                       date=date or self.current_date)
+        w.add_callback(lambda: self._on_todo_state_change())
 
         # 恢复运行状态
         if running and last_started_at and not completed:
@@ -377,11 +382,6 @@ class MainApp:
             if hasattr(self, "entry") and text is not None:
                 self.entry.delete(0, tk.END)
             self._schedule_save()
-
-    def _on_todo_hidden(self, todo_id):
-        """保留以兼容旧回调（不再使用）"""
-        self._refresh_view()
-        self._schedule_save()
 
     def _on_todo_state_change(self):
         self._refresh_view()
@@ -499,13 +499,48 @@ class MainApp:
             self.day_total_lbl.configure(
                 text=f"今日合计 {fmt_time(day_total)}  ·  {active_today} 项")
 
+        elif self.filter_state == "completed":
+            # 已完成视图：跨日期显示所有完成项，按日期分组
+            all_completed = [w for tid, w in self.todos.items()
+                           if w.completed and _matches(w)]
+            all_completed.sort(key=lambda w: (
+                getattr(w, "_date", ""), not getattr(w, "starred", False), getattr(w, "_order", 0)))
+
+            if all_completed:
+                groups = {}
+                for w in all_completed:
+                    dk = getattr(w, "_date", get_today_str())
+                    groups.setdefault(dk, []).append(w)
+
+                for dk in sorted(groups.keys(), reverse=True):
+                    group_items = groups[dk]
+                    hdr = SectionHeader(self.card_frame,
+                                       f"▎{fmt_date_cn(dk)} · {len(group_items)}项")
+                    hdr.pack(fill=tk.X)
+                    self._cards.append(hdr)
+
+                    seq = 0
+                    for w in group_items:
+                        seq += 1
+                        card = TodoCard(self.card_frame, w, seq=seq, show_date=False)
+                        card.callback_click = self._on_card_click
+                        card.callback_double = self._on_card_double
+                        card.callback_right = self._on_card_right_click
+                        card.pack(fill=tk.X)
+                        self._cards.append(card)
+            else:
+                hint = EmptyHint(self.card_frame, "暂无已完成待办")
+                hint.pack(fill=tk.X)
+                self._cards.append(hint)
+
+            done_count = len(all_completed)
+            self.day_total_lbl.configure(text=f"已完成 {done_count} 项")
+
         else:
+            # 全部视图：仅显示当前日期
             day_todos = {tid: w for tid, w in self.todos.items()
                          if getattr(w, "_date", get_today_str()) == today_str
                          and _matches(w)}
-
-            if self.filter_state == "completed":
-                day_todos = {tid: w for tid, w in day_todos.items() if w.completed}
 
             sorted_todos = sorted(day_todos.values(), key=lambda w: (
                 not getattr(w, "starred", False), getattr(w, "_order", 0)))
@@ -773,6 +808,48 @@ class MainApp:
             self.timer_panel.remove_todo(tid)
         self.todos.pop(tid, None)
         w.destroy()
+        self._selected_tid = None
+        self._refresh_view()
+        self._schedule_save()
+
+    def _archive_completed(self):
+        """归档所有已完成待办到 archive.json，并从主列表中移除"""
+        completed_ids = [tid for tid, w in self.todos.items() if w.completed]
+        if not completed_ids:
+            return
+        count = len(completed_ids)
+        if not messagebox.askyesno(
+            "确认归档", f"将 {count} 条已完成待办移到归档文件？\n归档后可在 data/archive.json 中查看。",
+            parent=self.root):
+            return
+
+        # 写入归档
+        archive = []
+        if os.path.exists(ARCHIVE_FILE):
+            try:
+                with open(ARCHIVE_FILE, "r", encoding="utf-8") as f:
+                    archive = json.load(f)
+            except Exception:
+                archive = []
+
+        for tid in completed_ids:
+            w = self.todos[tid]
+            d = w.to_dict()
+            d["date"] = getattr(w, "_date", get_today_str())
+            d["archived_at"] = get_today_str()
+            archive.append(d)
+            if self.timer_panel.has_todo(tid):
+                self.timer_panel.remove_todo(tid)
+            self.todos.pop(tid, None)
+
+        try:
+            os.makedirs(os.path.dirname(ARCHIVE_FILE), exist_ok=True)
+            with open(ARCHIVE_FILE, "w", encoding="utf-8") as f:
+                json.dump(archive, f, ensure_ascii=False, indent=2)
+        except Exception:
+            import traceback
+            traceback.print_exc()
+
         self._selected_tid = None
         self._refresh_view()
         self._schedule_save()

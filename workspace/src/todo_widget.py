@@ -1,28 +1,28 @@
 import time
+from .utils import get_today_str
 
 
 class TodoWidget:
     """待办计时数据模型 —— 纯状态与计时逻辑，不持有 UI"""
 
     def __init__(self, todo_id, text, elapsed=0, completed=False,
-                 order=0, starred=False):
+                 order=0, starred=False, date=None):
         self.todo_id = todo_id
         self.text = text
         self.elapsed = elapsed
-        self._base_elapsed = elapsed  # 暂停时的累计秒数
-        self._started_at = None       # 启动时的 time.time()
+        self._base_elapsed = elapsed
+        self._started_at = None
         self.running = False
         self.completed = completed
         self._order = order
         self.starred = starred
-        self._date = None             # 由 MainApp 设置
-        self._in_panel = False        # 是否在统一计时面板中
-        self._change_callback = None  # 状态变更回调
+        self._date = date
+        self._in_panel = False
+        self._callbacks = []  # observer list, 替代单一 _change_callback
 
-    # ── 计时（基于真实时钟，避免累积漂移）──
+    # ── 计时 ──
 
     def get_live_elapsed(self):
-        """实时耗时：运行中动态计算，暂停中返回已结算值"""
         if self.running:
             return self._base_elapsed + int(time.time() - self._started_at)
         return self.elapsed
@@ -57,6 +57,7 @@ class TodoWidget:
     def set_complete(self):
         self.pause()
         self.completed = True
+        self._date = get_today_str()
         self._fire_change()
 
     def set_incomplete(self):
@@ -82,11 +83,21 @@ class TodoWidget:
     def destroy(self):
         self.pause()
 
-    # ── 回调 ──
+    # ── 回调 (observer list) ──
+
+    def add_callback(self, cb):
+        """添加状态变更回调，同一 callable 不会重复添加"""
+        if cb not in self._callbacks:
+            self._callbacks.append(cb)
+
+    def remove_callback(self, cb):
+        """移除回调"""
+        if cb in self._callbacks:
+            self._callbacks.remove(cb)
 
     def _fire_change(self):
-        if self._change_callback:
-            self._change_callback()
+        for cb in self._callbacks:
+            cb()
 
     # ── 序列化 ──
 
