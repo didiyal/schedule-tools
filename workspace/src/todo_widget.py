@@ -68,6 +68,10 @@ class TodoWidget:
         self.text = new_text
         self._fire_change()
 
+    def set_date(self, new_date):
+        self._date = new_date
+        self._fire_change()
+
     # ── 面板可见性 ──
 
     def is_visible(self):

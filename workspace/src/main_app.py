@@ -41,6 +41,7 @@ class MainApp:
         self._undo_action = None
 
         self._save_after_id = None
+        self._main_tick_id = None
         self._loading = True
         self._build_ui()
         self.timer_panel = TimerPanel(self.root, on_state_change=self._on_todo_state_change)
@@ -136,6 +137,50 @@ class MainApp:
                  C["blue"], C["blue_hover"], font_size=12, pady=7, padx=20).pack(
             side=tk.LEFT)
 
+        # ── 底部按钮（两行）— 提前 pack，确保窗口缩小时不被挤出 ──
+        bf = tk.Frame(self.root, bg=C["bg"])
+        bf.pack(side=tk.BOTTOM, fill=tk.X, padx=20, pady=(0, 16))
+
+        # 第一行：操作按钮
+        r1 = tk.Frame(bf, bg=C["bg"])
+        r1.pack(fill=tk.X, pady=(0, 4))
+
+        flat_btn(r1, "▶  全部开始", self._start_all,
+                 C["green"], C["green_hover"], font_size=10, pady=5, padx=10).pack(
+            side=tk.LEFT, padx=(0, 4))
+        flat_btn(r1, "⏸  全部暂停", self._pause_all,
+                 C["orange"], C["orange_hover"], font_size=10, pady=5, padx=10).pack(
+            side=tk.LEFT, padx=(0, 4))
+        flat_btn(r1, "★  标重点", self._toggle_star_selected,
+                 C["orange"], C["orange_hover"], font_size=10, pady=5, padx=10).pack(
+            side=tk.LEFT, padx=(0, 4))
+        flat_btn(r1, "✓  标记完成", self._toggle_complete_selected,
+                 C["green"], C["green_hover"], font_size=10, pady=5, padx=10).pack(
+            side=tk.LEFT, padx=(0, 4))
+        flat_btn(r1, "✎  编辑", self._edit_selected,
+                 C["blue"], C["blue_hover"], font_size=10, pady=5, padx=10).pack(
+            side=tk.LEFT, padx=(0, 4))
+        flat_btn(r1, "📅  改期", self._change_date,
+                 C["text_sec"], C["text_ter"], font_size=10, pady=5, padx=10).pack(
+            side=tk.LEFT, padx=(0, 4))
+
+        # 第二行：排序 + 删除 + 归档
+        r2 = tk.Frame(bf, bg=C["bg"])
+        r2.pack(fill=tk.X)
+
+        flat_btn(r2, "↑  上移", self._move_up_selected,
+                 C["text_sec"], C["text_ter"], font_size=10, pady=5, padx=10).pack(
+            side=tk.LEFT, padx=(0, 4))
+        flat_btn(r2, "↓  下移", self._move_down_selected,
+                 C["text_sec"], C["text_ter"], font_size=10, pady=5, padx=10).pack(
+            side=tk.LEFT, padx=(0, 4))
+        flat_btn(r2, "🗑  删除", self._delete_selected,
+                 C["red"], C["red_hover"], font_size=10, pady=5, padx=10).pack(
+            side=tk.LEFT, padx=(0, 4))
+        flat_btn(r2, "🗄  清除已完成", self._archive_completed,
+                 C["text_ter"], C["red_light"], font_size=10, pady=5, padx=10).pack(
+            side=tk.RIGHT)
+
         # ── 列表卡片 ──
         card_list = tk.Frame(self.root, bg=C["surface"])
         card_list.pack(fill=tk.BOTH, expand=True, padx=20, pady=(2, 8))
@@ -194,50 +239,6 @@ class MainApp:
         self.card_frame.bind("<space>", lambda e: self._key_toggle_complete())
         self.card_frame.bind("<Delete>", lambda e: self._delete_selected())
         self.root.bind("<Control-z>", lambda e: self._key_undo())
-
-        # ── 底部按钮 ──
-        bf = tk.Frame(self.root, bg=C["bg"])
-        bf.pack(fill=tk.X, padx=20, pady=(0, 16))
-
-        flat_btn(bf, "▶  全部开始", self._start_all,
-                 C["green"], C["green_hover"], font_size=10, pady=6, padx=10).pack(
-            side=tk.LEFT, padx=(0, 4))
-
-        flat_btn(bf, "⏸  全部暂停", self._pause_all,
-                 C["orange"], C["orange_hover"], font_size=10, pady=6, padx=10).pack(
-            side=tk.LEFT, padx=(0, 4))
-
-        flat_btn(bf, "↑  上移", self._move_up_selected,
-                 C["text_sec"], C["text_ter"], font_size=10, pady=6, padx=10).pack(
-            side=tk.LEFT, padx=(0, 4))
-
-        flat_btn(bf, "↓  下移", self._move_down_selected,
-                 C["text_sec"], C["text_ter"], font_size=10, pady=6, padx=10).pack(
-            side=tk.LEFT, padx=(0, 4))
-
-        flat_btn(bf, "★  标重点", self._toggle_star_selected,
-                 C["orange"], C["orange_hover"], font_size=10, pady=6, padx=10).pack(
-            side=tk.LEFT, padx=(0, 4))
-
-        flat_btn(bf, "✓  标记完成", self._toggle_complete_selected,
-                 C["green"], C["green_hover"], font_size=10, pady=6, padx=10).pack(
-            side=tk.LEFT, padx=(0, 4))
-
-        flat_btn(bf, "✎  编辑", self._edit_selected,
-                 C["blue"], C["blue_hover"], font_size=10, pady=6, padx=10).pack(
-            side=tk.LEFT, padx=(0, 4))
-
-        flat_btn(bf, "📅  改期", self._change_date,
-                 C["text_sec"], C["text_ter"], font_size=10, pady=6, padx=10).pack(
-            side=tk.LEFT, padx=(0, 4))
-
-        flat_btn(bf, "🗑  删除", self._delete_selected,
-                 C["red"], C["red_hover"], font_size=10, pady=6, padx=10).pack(
-            side=tk.LEFT, padx=(0, 4))
-
-        flat_btn(bf, "🗄  清除已完成", self._archive_completed,
-                 C["text_ter"], C["red_light"], font_size=10, pady=6, padx=10).pack(
-            side=tk.RIGHT, padx=(0, 4))
 
     def _on_canvas_configure(self, event):
         self.canvas.itemconfig(self.card_frame_id, width=event.width)
@@ -387,6 +388,29 @@ class MainApp:
         self._refresh_view()
         self.timer_panel.refresh_all()
         self._schedule_save()
+        self._ensure_main_tick()
+
+    # ── 主窗口轻量 Tick（仅刷新时间标签，不重建视图）──
+    def _ensure_main_tick(self):
+        if any(w.running for w in self.todos.values()):
+            if not self._main_tick_id:
+                self._main_tick()
+        else:
+            self._stop_main_tick()
+
+    def _main_tick(self):
+        self._main_tick_id = None
+        for card in self._cards:
+            if isinstance(card, TodoCard) and card.todo_widget.running:
+                card.time_lbl.configure(
+                    text=fmt_time(card.todo_widget.get_live_elapsed()))
+        if any(w.running for w in self.todos.values()):
+            self._main_tick_id = self.root.after(200, self._main_tick)
+
+    def _stop_main_tick(self):
+        if self._main_tick_id:
+            self.root.after_cancel(self._main_tick_id)
+            self._main_tick_id = None
 
     # ── 视图渲染 ────────────────────────────────────────
     def _refresh_view(self):
@@ -418,7 +442,7 @@ class MainApp:
         if self.filter_state == "active":
             today_items = []
             cross_items = []
-            for tid, w in self.todos.items():
+            for w in self.todos.values():
                 if w.completed:
                     continue
                 if not _matches(w):
@@ -441,10 +465,6 @@ class MainApp:
                 hdr = SectionHeader(self.card_frame, "▎今日待办")
                 hdr.pack(fill=tk.X)
                 self._cards.append(hdr)
-            else:
-                hint = EmptyHint(self.card_frame, "今日暂无待办")
-                hint.pack(fill=tk.X)
-                self._cards.append(hint)
 
             seq = 0
             for w in today_items:
@@ -490,6 +510,7 @@ class MainApp:
                         card.pack(fill=tk.X)
                         self._cards.append(card)
 
+            # 统一空提示
             if not today_items and not cross_items:
                 hint = EmptyHint(self.card_frame, "暂无待办")
                 hint.pack(fill=tk.X)
@@ -501,7 +522,7 @@ class MainApp:
 
         elif self.filter_state == "completed":
             # 已完成视图：跨日期显示所有完成项，按日期分组
-            all_completed = [w for tid, w in self.todos.items()
+            all_completed = [w for w in self.todos.values()
                            if w.completed and _matches(w)]
             all_completed.sort(key=lambda w: (
                 getattr(w, "_date", ""), not getattr(w, "starred", False), getattr(w, "_order", 0)))
@@ -537,35 +558,46 @@ class MainApp:
             self.day_total_lbl.configure(text=f"已完成 {done_count} 项")
 
         else:
-            # 全部视图：仅显示当前日期
-            day_todos = {tid: w for tid, w in self.todos.items()
-                         if getattr(w, "_date", get_today_str()) == today_str
-                         and _matches(w)}
+            # 全部视图：跨日期显示所有待办，按日期分组
+            all_todos = [w for w in self.todos.values() if _matches(w)]
+            all_todos.sort(key=lambda w: (
+                getattr(w, "_date", ""), not getattr(w, "starred", False),
+                w.completed, getattr(w, "_order", 0)))
 
-            sorted_todos = sorted(day_todos.values(), key=lambda w: (
-                not getattr(w, "starred", False), getattr(w, "_order", 0)))
+            if all_todos:
+                groups = {}
+                for w in all_todos:
+                    dk = getattr(w, "_date", get_today_str())
+                    groups.setdefault(dk, []).append(w)
 
-            day_total = 0
-            seq = 0
-            for w in sorted_todos:
-                seq += 1
-                if not w.completed:
-                    day_total += w.elapsed
-                card = TodoCard(self.card_frame, w, seq=seq, show_date=False)
-                card.callback_click = self._on_card_click
-                card.callback_double = self._on_card_double
-                card.callback_right = self._on_card_right_click
-                card.pack(fill=tk.X)
-                self._cards.append(card)
+                day_total = 0
+                for dk in sorted(groups.keys(), reverse=True):
+                    group_items = groups[dk]
+                    is_today = dk == get_today_str()
+                    label = f"▎今日 · {len(group_items)}项" if is_today else f"▎{fmt_date_cn(dk)} · {len(group_items)}项"
+                    hdr = SectionHeader(self.card_frame, label)
+                    hdr.pack(fill=tk.X)
+                    self._cards.append(hdr)
 
-            if not sorted_todos:
+                    seq = 0
+                    for w in group_items:
+                        seq += 1
+                        if not w.completed:
+                            day_total += w.elapsed
+                        card = TodoCard(self.card_frame, w, seq=seq, show_date=False)
+                        card.callback_click = self._on_card_click
+                        card.callback_double = self._on_card_double
+                        card.callback_right = self._on_card_right_click
+                        card.pack(fill=tk.X)
+                        self._cards.append(card)
+            else:
                 hint = EmptyHint(self.card_frame, "暂无待办")
                 hint.pack(fill=tk.X)
                 self._cards.append(hint)
 
-            active_count = sum(1 for w in sorted_todos if not w.completed)
+            active_count = sum(1 for w in all_todos if not w.completed)
             self.day_total_lbl.configure(
-                text=f"当日合计 {fmt_time(day_total)}  ·  {active_count} 项")
+                text=f"合计 {fmt_time(day_total)}  ·  {active_count} 项")
 
         # 全局统计
         total = len(self.todos)
@@ -778,10 +810,9 @@ class MainApp:
         current = getattr(w, "_date", get_today_str())
 
         def set_date(new_date):
-            w._date = new_date
+            w.set_date(new_date)
             self._refresh_view()
             self._select_card(tid)
-            self._schedule_save()
 
         DatePickerDialog(self.root, current, set_date)
 
@@ -855,6 +886,7 @@ class MainApp:
         self._schedule_save()
 
     def _start_all(self):
+        saved_tid = self._selected_tid
         for card in self._cards:
             if isinstance(card, TodoCard):
                 w = card.todo_widget
@@ -864,12 +896,17 @@ class MainApp:
                     w.start()
         self.timer_panel.show()
         self._refresh_view()
+        if saved_tid:
+            self._select_card(saved_tid)
 
     def _pause_all(self):
+        saved_tid = self._selected_tid
         for card in self._cards:
             if isinstance(card, TodoCard):
                 card.todo_widget.pause()
         self._refresh_view()
+        if saved_tid:
+            self._select_card(saved_tid)
 
     # ── 持久化 ──────────────────────────────────────────
     def _schedule_save(self):
