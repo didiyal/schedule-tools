@@ -20,6 +20,7 @@ from .todo_widget import TodoWidget
 from .date_picker import DatePickerDialog
 from .todo_card import TodoCard, SectionHeader, EmptyHint
 from .timer_panel import TimerPanel
+from .tray import TrayController, autostart_enabled, set_autostart
 
 
 class MainApp:
@@ -39,6 +40,8 @@ class MainApp:
         self._selected_tid: str | None = None
         self._search_term = ""
         self._undo_action = None
+        self._dragging_tid: str | None = None        # 当前拖拽中的待办 id
+        self._panel_was_visible = False               # 最小化前面板是否可见
 
         self._save_after_id = None
         self._main_tick_id = None
@@ -49,7 +52,16 @@ class MainApp:
         self._loading = False
         self._refresh_view()
 
-        self.root.protocol("WM_DELETE_WINDOW", self._on_close)
+        # 系统托盘：关闭窗口=最小化到托盘，真正退出走托盘菜单
+        self._tray = TrayController(
+            self.root,
+            on_show=self._show_window,
+            on_quit=self._quit_app,
+            on_toggle_autostart=self._toggle_autostart,
+        )
+        self._tray.start()
+
+        self.root.protocol("WM_DELETE_WINDOW", self._minimize_to_tray)
 
     # ── UI 构建 ────────────────────────────────────────
     def _build_ui(self):
@@ -239,6 +251,9 @@ class MainApp:
         self.card_frame.bind("<space>", lambda e: self._key_toggle_complete())
         self.card_frame.bind("<Delete>", lambda e: self._delete_selected())
         self.root.bind("<Control-z>", lambda e: self._key_undo())
+        self.root.bind("<Control-q>", lambda e: self._quit_app())
+        # 拖拽释放安全网：鼠标释放在卡片外也能清理拖拽高亮
+        self.root.bind("<ButtonRelease-1>", self._on_global_drag_release)
 
     def _on_canvas_configure(self, event):
         self.canvas.itemconfig(self.card_frame_id, width=event.width)
@@ -292,6 +307,8 @@ class MainApp:
                     todo_id=snapshot.get("id"), visible=snapshot.get("visible", True),
                     date=snapshot.get("date"), completed=snapshot.get("completed", False),
                     order=snapshot.get("order"), starred=snapshot.get("starred", False),
+                    target_seconds=snapshot.get("target_seconds"),
+                    reminded=snapshot.get("reminded", False),
                 )
         elif action == "edit":
             if snapshot and todo_id in self.todos:
@@ -335,7 +352,7 @@ class MainApp:
     def _add_todo(self, text=None, elapsed=0, x=None, y=None,
                   todo_id=None, visible=True, date=None, completed=False,
                   order=None, starred=False, running=False,
-                  last_started_at=None):
+                  last_started_at=None, target_seconds=None, reminded=False):
         if text is None:
             text = self.entry.get().strip()
         if not text:
@@ -362,7 +379,9 @@ class MainApp:
 
         w = TodoWidget(todo_id, text, elapsed, completed=completed,
                        order=w_order, starred=starred,
-                       date=date or self.current_date)
+                       date=date or self.current_date,
+                       target_seconds=target_seconds)
+        w.reminded = bool(reminded)
         w.add_callback(lambda: self._on_todo_state_change())
 
         # 恢复运行状态
@@ -401,9 +420,18 @@ class MainApp:
     def _main_tick(self):
         self._main_tick_id = None
         for card in self._cards:
-            if isinstance(card, TodoCard) and card.todo_widget.running:
-                card.time_lbl.configure(
-                    text=fmt_time(card.todo_widget.get_live_elapsed()))
+            if isinstance(card, TodoCard):
+                w = card.todo_widget
+                if w.running:
+                    card.time_lbl.configure(text=fmt_time(w.get_live_elapsed()))
+                # 暂停/已完成的卡片也刷新 ⏰ 标签（避免显示过期倒计时）
+                if hasattr(card, "update_reminder"):
+                    card.update_reminder()
+        # 计时提醒检查（覆盖所有运行中的待办，不限于可见卡片）
+        for w in self.todos.values():
+            if w.running and w.should_remind():
+                w.mark_reminded()
+                self._fire_reminder(w)
         if any(w.running for w in self.todos.values()):
             self._main_tick_id = self.root.after(200, self._main_tick)
 
@@ -474,6 +502,9 @@ class MainApp:
                 card.callback_click = self._on_card_click
                 card.callback_double = self._on_card_double
                 card.callback_right = self._on_card_right_click
+                card.callback_drag_start = self._on_drag_start
+                card.callback_drag_move = self._on_drag_move
+                card.callback_drag_drop = self._on_drag_drop
                 card.pack(fill=tk.X)
                 self._cards.append(card)
 
@@ -507,6 +538,9 @@ class MainApp:
                         card.callback_click = self._on_card_click
                         card.callback_double = self._on_card_double
                         card.callback_right = self._on_card_right_click
+                        card.callback_drag_start = self._on_drag_start
+                        card.callback_drag_move = self._on_drag_move
+                        card.callback_drag_drop = self._on_drag_drop
                         card.pack(fill=tk.X)
                         self._cards.append(card)
 
@@ -547,6 +581,9 @@ class MainApp:
                         card.callback_click = self._on_card_click
                         card.callback_double = self._on_card_double
                         card.callback_right = self._on_card_right_click
+                        card.callback_drag_start = self._on_drag_start
+                        card.callback_drag_move = self._on_drag_move
+                        card.callback_drag_drop = self._on_drag_drop
                         card.pack(fill=tk.X)
                         self._cards.append(card)
             else:
@@ -588,6 +625,9 @@ class MainApp:
                         card.callback_click = self._on_card_click
                         card.callback_double = self._on_card_double
                         card.callback_right = self._on_card_right_click
+                        card.callback_drag_start = self._on_drag_start
+                        card.callback_drag_move = self._on_drag_move
+                        card.callback_drag_drop = self._on_drag_drop
                         card.pack(fill=tk.X)
                         self._cards.append(card)
             else:
@@ -643,6 +683,11 @@ class MainApp:
             menu.add_command(label="☆ 取消重点", command=self._toggle_star_selected)
         else:
             menu.add_command(label="★ 标为重点", command=self._toggle_star_selected)
+
+        if w.target_seconds:
+            menu.add_command(label="⏰ 清除提醒", command=lambda: (w.clear_target(), self._refresh_view(),
+                             self._select_card(tid), self._schedule_save()))
+        menu.add_command(label="⏰ 设置提醒", command=self._set_reminder)
 
         menu.add_separator()
         menu.add_command(label="↑ 上移", command=self._move_up_selected)
@@ -833,6 +878,7 @@ class MainApp:
             "completed": w.completed, "visible": w.is_visible(),
             "date": getattr(w, "_date", get_today_str()),
             "order": w._order, "starred": w.starred,
+            "target_seconds": w.target_seconds, "reminded": w.reminded,
         }
         self._save_undo("delete", tid, snapshot)
         if self.timer_panel.has_todo(tid):
@@ -907,6 +953,187 @@ class MainApp:
         self._refresh_view()
         if saved_tid:
             self._select_card(saved_tid)
+
+    # ── 拖拽排序（组内）──────────────────────────────────
+    def _on_drag_start(self, tid):
+        self._dragging_tid = tid
+        for c in self._cards:
+            if isinstance(c, TodoCard) and c.todo_widget.todo_id == tid:
+                c.set_dragging(True)
+                break
+
+    def _on_drag_move(self, tid, y_root):
+        pass  # 本轮不做实时插入线，落点在 drop 时计算
+
+    def _on_drag_drop(self, tid, y_root):
+        self._clear_drag_highlight()
+        self._reorder_in_group(tid, y_root)
+
+    def _on_global_drag_release(self, event):
+        """安全网：鼠标释放在卡片外（grab 未投递）也能清理拖拽高亮"""
+        self._clear_drag_highlight()
+
+    def _clear_drag_highlight(self):
+        if self._dragging_tid:
+            for c in self._cards:
+                if (isinstance(c, TodoCard)
+                        and c.todo_widget.todo_id == self._dragging_tid):
+                    c.set_dragging(False)
+                    break
+            self._dragging_tid = None
+
+    def _reorder_in_group(self, dragged_tid, y_root):
+        """在同 _date 分组内重排 _order；跨组落点 → 不变（弹回）"""
+        if dragged_tid not in self.todos:
+            return
+        dragged = self.todos[dragged_tid]
+        d_date = getattr(dragged, "_date", get_today_str())
+        group_cards = [c for c in self._cards
+                       if isinstance(c, TodoCard)
+                       and getattr(c.todo_widget, "_date", "") == d_date]
+        if len(group_cards) < 2:
+            return
+
+        # 被拖卡片当前是否还在组内（落点可能在组外）
+        dragged_card = next((c for c in group_cards
+                             if c.todo_widget.todo_id == dragged_tid), None)
+        if dragged_card is None:
+            return
+
+        # 被拖卡片在原组中的索引
+        cur_idx = next((i for i, c in enumerate(group_cards)
+                        if c.todo_widget.todo_id == dragged_tid), 0)
+
+        # 剩余卡片（视觉顺序），在其中定位插入点
+        remaining = [c for c in group_cards if c.todo_widget.todo_id != dragged_tid]
+        insert_at = len(remaining)
+        for i, c in enumerate(remaining):
+            cy = c.winfo_rooty()
+            ch = c.winfo_height() or 1
+            if y_root < cy + ch // 2:
+                insert_at = i
+                break
+
+        # 位置无变化（基于移除后的索引空间，只需判等）
+        if insert_at == cur_idx:
+            return
+
+        # 重建顺序：剩余 + 拖拽项插入
+        ordered = [c.todo_widget for c in remaining]
+        ordered.insert(insert_at, dragged)
+
+        # 用组内现有 _order 升序值重新分配（保持间距，避免重复值）
+        order_vals = sorted(getattr(w, "_order", 0) for w in ordered)
+        for w, ov in zip(ordered, order_vals):
+            w._order = ov
+
+        self._refresh_view()
+        self._select_card(dragged_tid)
+        self._schedule_save()
+
+    # ── 计时提醒 ──────────────────────────────────────────
+    def _fire_reminder(self, w):
+        """目标时长达成：声音 + 托盘通知 + 置顶弹窗"""
+        try:
+            import winsound
+            winsound.Beep(880, 500)
+        except Exception:
+            pass
+        if self._tray is not None:
+            self._tray.notify("计时提醒", f"「{w.text}」已达 {fmt_time(w.target_seconds)}")
+
+        dlg = tk.Toplevel(self.root)
+        dlg.title("计时提醒")
+        dlg.geometry("400x190")
+        dlg.configure(bg=C["surface"])
+        dlg.attributes("-topmost", True)
+        dlg.transient(self.root)
+        dlg.grab_set()
+        dlg.focus_set()
+
+        tk.Label(dlg, text="⏰ 计时目标达成", bg=C["surface"], fg=C["orange"],
+                 font=(FONT, 15, "bold")).pack(pady=(20, 8))
+        tk.Label(dlg, text=f"「{w.text}」\n已达 {fmt_time(w.target_seconds)}",
+                 bg=C["surface"], fg=C["text"], font=(FONT, 11),
+                 justify="center").pack(pady=(0, 14))
+
+        btns = tk.Frame(dlg, bg=C["surface"])
+        btns.pack()
+
+        def close():
+            dlg.destroy()
+
+        flat_btn(btns, "继续计时", lambda: (w.start(), close()),
+                 C["green"], C["green_hover"], font_size=10, pady=5, padx=14).pack(
+            side=tk.LEFT, padx=3)
+        flat_btn(btns, "暂停", lambda: (w.pause(), close()),
+                 C["orange"], C["orange_hover"], font_size=10, pady=5, padx=14).pack(
+            side=tk.LEFT, padx=3)
+        flat_btn(btns, "标记完成", lambda: (w.set_complete(), self._refresh_view(), close()),
+                 C["blue"], C["blue_hover"], font_size=10, pady=5, padx=14).pack(
+            side=tk.LEFT, padx=3)
+        flat_btn(btns, "关闭", close, C["text_sec"], C["text_ter"],
+                 font_size=10, pady=5, padx=14).pack(side=tk.LEFT, padx=3)
+
+        self._show_window()  # 唤起窗口让用户看到弹窗
+
+    def _set_reminder(self):
+        """为目标待办设置/清除计时提醒"""
+        tid = self._get_selected_id()
+        if not tid:
+            return
+        w = self.todos[tid]
+
+        dlg = tk.Toplevel(self.root)
+        dlg.title("设置计时提醒")
+        dlg.geometry("320x220")
+        dlg.configure(bg=C["surface"])
+        dlg.resizable(False, False)
+        dlg.transient(self.root)
+        dlg.grab_set()
+
+        tk.Label(dlg, text="⏰ 目标时长提醒", bg=C["surface"], fg=C["text"],
+                 font=(FONT, 13, "bold")).pack(pady=(16, 2))
+        cur = f"当前：{fmt_time(w.target_seconds)}" if w.target_seconds else "当前：未设置"
+        tk.Label(dlg, text=cur, bg=C["surface"], fg=C["text_sec"],
+                 font=(FONT, 9)).pack(pady=(0, 10))
+
+        def apply_minutes(m):
+            w.set_target(m * 60)
+            self._refresh_view()
+            self._select_card(tid)
+            self._schedule_save()
+            dlg.destroy()
+
+        presets = tk.Frame(dlg, bg=C["surface"])
+        presets.pack()
+        for m in (5, 15, 25, 60):
+            flat_btn(presets, f"{m} 分钟", lambda mm=m: apply_minutes(mm),
+                     C["blue_light"], C["blue"], font_size=10, pady=4, padx=12,
+                     fg=C["blue"]).pack(side=tk.LEFT, padx=3)
+
+        custom = tk.Frame(dlg, bg=C["surface"])
+        custom.pack(pady=(10, 0))
+
+        def apply_entry():
+            try:
+                m = int(ent.get().strip())
+                if m > 0:
+                    apply_minutes(m)
+            except ValueError:
+                pass
+
+        ent = tk.Entry(custom, width=6, font=(FONT, 10))
+        ent.pack(side=tk.LEFT, padx=(0, 4))
+        flat_btn(custom, "自定义", apply_entry, C["blue"], C["blue_hover"],
+                 font_size=9, pady=3, padx=10).pack(side=tk.LEFT, padx=2)
+        flat_btn(custom, "清除", lambda: (w.clear_target(), self._refresh_view(),
+                 self._select_card(tid), self._schedule_save(), dlg.destroy()),
+                 C["text_ter"], C["red_light"], font_size=9, pady=3, padx=10).pack(
+            side=tk.LEFT, padx=2)
+        ent.bind("<Return>", lambda e: apply_entry())
+
+        dlg.wait_window()
 
     # ── 持久化 ──────────────────────────────────────────
     def _schedule_save(self):
@@ -993,15 +1220,57 @@ class MainApp:
                 starred=item.get("starred", False),
                 running=item.get("running", False),
                 last_started_at=item.get("last_started_at"),
+                target_seconds=item.get("target_seconds"),
+                reminded=item.get("reminded", False),
             )
 
-    def _on_close(self):
+    # ── 系统托盘 / 窗口控制 ────────────────────────────
+    def _tray_available(self):
+        return self._tray is not None and getattr(self._tray, "_icon", None) is not None
+
+    def _minimize_to_tray(self):
+        """关闭按钮 → 最小化到托盘（不退出）。无托盘时退化为真正退出"""
+        if not self._tray_available():
+            self._quit_app()
+            return
+        # 记住面板可见性，恢复时还原
+        self._panel_was_visible = self.timer_panel.is_visible()
+        if self._panel_was_visible:
+            self.timer_panel.hide()
+        # 刷新待落盘的改动，避免最小化后被杀进程丢数据
         if self._save_after_id:
             self.root.after_cancel(self._save_after_id)
             self._save_after_id = None
         self._save()
+        self.root.withdraw()
+        self._tray.notify("待办计时器", "已最小化到托盘，点击图标恢复")
+
+    def _show_window(self):
+        """从托盘恢复窗口"""
+        self.root.deiconify()
+        self.root.lift()
+        self.root.focus_force()
+        if getattr(self, "_panel_was_visible", False):
+            self.timer_panel.show()
+            self._panel_was_visible = False
+
+    def _toggle_autostart(self):
+        # 以设置后的真实注册表状态为准，避免写失败时通知与实际不符
+        set_autostart(not autostart_enabled())
+        if autostart_enabled():
+            self._tray.notify("开机自启", "已开启开机自启")
+        else:
+            self._tray.notify("开机自启", "已关闭开机自启")
+
+    def _quit_app(self):
+        """真正退出：保存 + 停托盘 + 销毁（由 mainloop 自然结束，不强制 exit）"""
+        if self._save_after_id:
+            self.root.after_cancel(self._save_after_id)
+            self._save_after_id = None
+        self._save()
+        if self._tray is not None:
+            self._tray.stop()
         self.root.destroy()
-        sys.exit(0)
 
     def run(self):
         self.root.mainloop()

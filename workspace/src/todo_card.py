@@ -102,18 +102,30 @@ class TodoCard(tk.Frame):
                                      fg=C["green"], font=(FONT, 9))
             self.done_lbl.pack(side=tk.RIGHT, padx=(0, 4))
 
-        # ── 点击 / 悬停 ──
+        # 计时提醒标记 ⏰ + 倒计时（仅当设置了目标时长）
+        if w.target_seconds:
+            self.rem_lbl = tk.Label(right, text="⏰", bg=C["surface"],
+                                    fg=C["orange"], font=(FONT, 9))
+            self.rem_lbl.pack(side=tk.RIGHT, padx=(0, 4))
+
+        # ── 点击 / 悬停 / 拖拽 ──
         self._selected = False
+        self._drag_start = None    # 拖拽起点 (x_root, y_root)
+        self._drag_active = False  # 是否已进入拖拽
         self.bind("<Button-1>", self._on_click)
         self.bind("<Double-Button-1>", self._on_double_click)
         self.bind("<Button-3>", self._on_right_click)
+        self.bind("<B1-Motion>", self._on_drag_motion)
+        self.bind("<ButtonRelease-1>", self._on_drag_release)
         self.bind("<Enter>", self._on_enter)
         self.bind("<Leave>", self._on_leave)
-        # 子控件只绑定点击，悬停统一由外层 Frame 处理避免闪烁
+        # 子控件只绑定点击/拖拽，悬停统一由外层 Frame 处理避免闪烁
         for child in self._all_children(self):
             child.bind("<Button-1>", self._on_click)
             child.bind("<Double-Button-1>", self._on_double_click)
             child.bind("<Button-3>", self._on_right_click)
+            child.bind("<B1-Motion>", self._on_drag_motion)
+            child.bind("<ButtonRelease-1>", self._on_drag_release)
 
     @staticmethod
     def _all_children(widget):
@@ -162,8 +174,55 @@ class TodoCard(tk.Frame):
                     pass
 
     def _on_click(self, event):
+        # 记录拖拽起点；移动超过阈值才算拖拽，否则视为普通点击
+        self._drag_start = (event.x_root, event.y_root)
+        self._drag_active = False
         if hasattr(self, "callback_click"):
             self.callback_click(self.todo_widget.todo_id)
+
+    def _on_drag_motion(self, event):
+        if not self._drag_start:
+            return
+        sx, sy = self._drag_start
+        if not self._drag_active:
+            # 5px 阈值，区分点击与拖拽
+            if abs(event.x_root - sx) < 5 and abs(event.y_root - sy) < 5:
+                return
+            self._drag_active = True
+            if hasattr(self, "callback_drag_start"):
+                self.callback_drag_start(self.todo_widget.todo_id)
+        if hasattr(self, "callback_drag_move"):
+            self.callback_drag_move(self.todo_widget.todo_id, event.y_root)
+
+    def _on_drag_release(self, event):
+        if self._drag_active:
+            if hasattr(self, "callback_drag_drop"):
+                self.callback_drag_drop(self.todo_widget.todo_id, event.y_root)
+        self._drag_start = None
+        self._drag_active = False
+
+    def set_dragging(self, dragging):
+        """拖拽中的视觉反馈（外框高亮，不打扰内部配色）"""
+        if dragging:
+            self.configure(highlightthickness=2, highlightbackground=C["blue"])
+        else:
+            self.configure(highlightthickness=0)
+
+    def update_reminder(self):
+        """刷新 ⏰ 倒计时标签（由主窗口 tick 调用）"""
+        if not hasattr(self, "rem_lbl"):
+            return
+        w = self.todo_widget
+        if not w.target_seconds:
+            return
+        if w.completed:
+            txt = "⏰"
+        elif w.running:
+            left = w.target_seconds - w.get_live_elapsed()
+            txt = "⏰超时" if left <= 0 else f"⏰{fmt_time(left)}"
+        else:
+            txt = f"⏰{fmt_time(w.target_seconds)}"
+        self.rem_lbl.configure(text=txt)
 
     def _on_double_click(self, event):
         if hasattr(self, "callback_double"):
@@ -176,7 +235,7 @@ class TodoCard(tk.Frame):
     def _on_enter(self, event):
         if event.widget is not self:
             return
-        if not self._selected:
+        if not self._selected and not self._drag_active:
             self.configure(bg=C["bg"])
             for child in self._all_children(self):
                 try:
@@ -188,7 +247,7 @@ class TodoCard(tk.Frame):
     def _on_leave(self, event):
         if event.widget is not self:
             return
-        if not self._selected:
+        if not self._selected and not self._drag_active:
             self.configure(bg=C["surface"])
             for child in self._all_children(self):
                 try:

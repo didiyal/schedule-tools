@@ -6,7 +6,7 @@ class TodoWidget:
     """待办计时数据模型 —— 纯状态与计时逻辑，不持有 UI"""
 
     def __init__(self, todo_id, text, elapsed=0, completed=False,
-                 order=0, starred=False, date=None):
+                 order=0, starred=False, date=None, target_seconds=None):
         self.todo_id = todo_id
         self.text = text
         self.elapsed = elapsed
@@ -19,6 +19,8 @@ class TodoWidget:
         self._date = date
         self._in_panel = False
         self._callbacks = []  # observer list, 替代单一 _change_callback
+        self.target_seconds = target_seconds  # 目标时长提醒，None=无
+        self.reminded = False                 # 是否已触发提醒（防重复）
 
     # ── 计时 ──
 
@@ -49,6 +51,7 @@ class TodoWidget:
         self.pause()
         self.elapsed = 0
         self._base_elapsed = 0
+        self.reminded = False  # 计时归零，重新允许提醒
         if was_running:
             self.start()
 
@@ -103,6 +106,29 @@ class TodoWidget:
         for cb in self._callbacks:
             cb()
 
+    # ── 目标时长提醒 ──
+
+    def set_target(self, seconds):
+        """设置目标时长提醒；None 表示清除。重设后重新允许提醒"""
+        self.target_seconds = seconds if seconds and seconds > 0 else None
+        self.reminded = False
+        self._fire_change()
+
+    def clear_target(self):
+        if self.target_seconds is not None:
+            self.target_seconds = None
+            self.reminded = False
+            self._fire_change()
+
+    def should_remind(self):
+        """是否满足触发条件：有目标、未提醒、运行中、已达标"""
+        return (self.target_seconds is not None and not self.reminded
+                and self.running and self.get_live_elapsed() >= self.target_seconds)
+
+    def mark_reminded(self):
+        self.reminded = True
+        self._fire_change()
+
     # ── 序列化 ──
 
     def to_dict(self):
@@ -118,4 +144,6 @@ class TodoWidget:
             "starred": self.starred,
             "running": self.running,
             "last_started_at": self._started_at if self.running else None,
+            "target_seconds": self.target_seconds,
+            "reminded": self.reminded,
         }
