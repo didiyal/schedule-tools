@@ -1,5 +1,6 @@
 """系统托盘 + 开机自启 —— pystray 跑独立线程，回调投递回 tkinter 主线程"""
 import os
+import queue
 import sys
 
 try:
@@ -90,6 +91,9 @@ class TrayController:
         self._on_quit = on_quit
         self._on_toggle_autostart = on_toggle_autostart
         self._icon = None
+        # 线程安全队列：pystray 线程投递回调，主线程 pump() 取出执行。
+        # 不能直接 root.after()——从非主线程调用会抛 RuntimeError 并被静默吞掉。
+        self._q = queue.Queue()
         if not _HAS_TRAY:
             return
 
@@ -113,11 +117,20 @@ class TrayController:
         return "☑ 开机自启" if autostart_enabled() else "☐ 开机自启"
 
     def _dispatch(self, fn):
-        """把回调投递到 tkinter 主线程，避免跨线程操作 UI"""
-        try:
-            self.root.after(0, fn)
-        except Exception:
-            pass
+        """把回调投递到队列，由主线程 pump() 取出执行（线程安全）。"""
+        self._q.put(fn)
+
+    def pump(self):
+        """主线程定期调用：取出并执行所有已投递的回调。"""
+        while True:
+            try:
+                fn = self._q.get_nowait()
+            except queue.Empty:
+                return
+            try:
+                fn()
+            except Exception:
+                pass
 
     def _act_show(self, *_):
         self._dispatch(self._on_show)
@@ -125,7 +138,7 @@ class TrayController:
     def _act_quit(self, *_):
         self._dispatch(self._on_quit)
 
-    def _act_toggle_autostart(self, icon, item):
+    def _act_toggle_autostart(self, *_):
         self._dispatch(self._on_toggle_autostart)
 
     def start(self):

@@ -41,7 +41,7 @@ class MainApp:
         self._search_term = ""
         self._undo_action = None
         self._dragging_tid: str | None = None        # 当前拖拽中的待办 id
-        self._panel_was_visible = False               # 最小化前面板是否可见
+        self._drag_ghost = None                       # 拖拽虚影 Toplevel
 
         self._save_after_id = None
         self._main_tick_id = None
@@ -60,8 +60,16 @@ class MainApp:
             on_toggle_autostart=self._toggle_autostart,
         )
         self._tray.start()
+        # pystray 线程的回调经队列投递，主线程定期 pump 取出执行（跨线程不能用 root.after）
+        self.root.after(100, self._pump_tray)
 
         self.root.protocol("WM_DELETE_WINDOW", self._minimize_to_tray)
+
+    def _pump_tray(self):
+        """主线程轮询：取出 pystray 线程投递的回调并执行，然后重排。"""
+        if self._tray is not None:
+            self._tray.pump()
+        self.root.after(80, self._pump_tray)
 
     # ── UI 构建 ────────────────────────────────────────
     def _build_ui(self):
@@ -961,9 +969,53 @@ class MainApp:
             if isinstance(c, TodoCard) and c.todo_widget.todo_id == tid:
                 c.set_dragging(True)
                 break
+        self._create_drag_ghost(tid)
+
+    def _create_drag_ghost(self, tid):
+        """创建跟随光标的拖拽虚影，让用户清楚知道正在拖动哪一项。"""
+        if tid not in self.todos:
+            return
+        self._destroy_drag_ghost()
+        g = tk.Toplevel(self.root)
+        g.overrideredirect(True)
+        g.attributes("-topmost", True)
+        try:
+            g.attributes("-alpha", 0.85)   # 半透明，营造“虚影”感
+        except Exception:
+            pass
+        g.configure(bg=C["blue"], highlightthickness=0, bd=0)
+        body = tk.Frame(g, bg=C["surface"])
+        body.pack(fill=tk.BOTH, expand=True, padx=2)  # 2px 蓝边
+        text = self.todos[tid].text
+        lbl = tk.Label(body, text=f"✥ {text}", bg=C["surface"], fg=C["text"],
+                       font=(FONT, 10), anchor="w", padx=10, pady=6)
+        lbl.pack()
+        # 立即定位到光标处，避免虚影先在 (0,0) 闪现
+        try:
+            g.geometry(f"+{self.root.winfo_pointerx() + 14}"
+                       f"+{self.root.winfo_pointery() + 10}")
+        except Exception:
+            pass
+        self._drag_ghost = g
+
+    def _destroy_drag_ghost(self):
+        if self._drag_ghost is not None:
+            try:
+                self._drag_ghost.destroy()
+            except Exception:
+                pass
+            self._drag_ghost = None
 
     def _on_drag_move(self, tid, y_root):
-        pass  # 本轮不做实时插入线，落点在 drop 时计算
+        """移动拖拽虚影跟随光标（略偏移，避免遮挡落点）。"""
+        if self._drag_ghost is None:
+            return
+        x = self.root.winfo_pointerx() + 14
+        y = self.root.winfo_pointery() + 10
+        try:
+            self._drag_ghost.geometry(f"+{x}+{y}")
+        except Exception:
+            pass
 
     def _on_drag_drop(self, tid, y_root):
         self._clear_drag_highlight()
@@ -974,6 +1026,7 @@ class MainApp:
         self._clear_drag_highlight()
 
     def _clear_drag_highlight(self):
+        self._destroy_drag_ghost()
         if self._dragging_tid:
             for c in self._cards:
                 if (isinstance(c, TodoCard)
@@ -1032,6 +1085,23 @@ class MainApp:
         self._schedule_save()
 
     # ── 计时提醒 ──────────────────────────────────────────
+    def _center_over(self, dlg, w, h):
+        """把对话框居中到主窗口上方（主窗口不可见时退化为屏幕居中）。"""
+        try:
+            rw = self.root.winfo_width()
+            rh = self.root.winfo_height()
+            rx = self.root.winfo_rootx()
+            ry = self.root.winfo_rooty()
+            if rw > 1 and rh > 1:
+                x = rx + (rw - w) // 2
+                y = ry + (rh - h) // 2
+            else:
+                raise ValueError
+        except Exception:
+            x = (dlg.winfo_screenwidth() - w) // 2
+            y = (dlg.winfo_screenheight() - h) // 2
+        dlg.geometry(f"{w}x{h}+{max(0, x)}+{max(0, y)}")
+
     def _fire_reminder(self, w):
         """目标时长达成：声音 + 托盘通知 + 置顶弹窗"""
         try:
@@ -1048,8 +1118,9 @@ class MainApp:
         dlg.configure(bg=C["surface"])
         dlg.attributes("-topmost", True)
         dlg.transient(self.root)
+        self._center_over(dlg, 400, 190)
         dlg.grab_set()
-        dlg.focus_set()
+        dlg.focus_force()
 
         tk.Label(dlg, text="⏰ 计时目标达成", bg=C["surface"], fg=C["orange"],
                  font=(FONT, 15, "bold")).pack(pady=(20, 8))
@@ -1090,7 +1161,10 @@ class MainApp:
         dlg.configure(bg=C["surface"])
         dlg.resizable(False, False)
         dlg.transient(self.root)
+        dlg.attributes("-topmost", True)   # 必须置顶，否则可能被主窗口盖住而 grab 卡死
+        self._center_over(dlg, 320, 220)
         dlg.grab_set()
+        dlg.focus_force()
 
         tk.Label(dlg, text="⏰ 目标时长提醒", bg=C["surface"], fg=C["text"],
                  font=(FONT, 13, "bold")).pack(pady=(16, 2))
@@ -1229,14 +1303,14 @@ class MainApp:
         return self._tray is not None and getattr(self._tray, "_icon", None) is not None
 
     def _minimize_to_tray(self):
-        """关闭按钮 → 最小化到托盘（不退出）。无托盘时退化为真正退出"""
+        """关闭按钮 → 最小化到托盘（不退出）。无托盘时退化为真正退出。
+
+        计时面板是独立的 overrideredirect Toplevel（非 transient），root.withdraw()
+        不会影响它 —— 所以悬浮窗在主窗口最小化时保持可见。
+        """
         if not self._tray_available():
             self._quit_app()
             return
-        # 记住面板可见性，恢复时还原
-        self._panel_was_visible = self.timer_panel.is_visible()
-        if self._panel_was_visible:
-            self.timer_panel.hide()
         # 刷新待落盘的改动，避免最小化后被杀进程丢数据
         if self._save_after_id:
             self.root.after_cancel(self._save_after_id)
@@ -1250,9 +1324,6 @@ class MainApp:
         self.root.deiconify()
         self.root.lift()
         self.root.focus_force()
-        if getattr(self, "_panel_was_visible", False):
-            self.timer_panel.show()
-            self._panel_was_visible = False
 
     def _toggle_autostart(self):
         # 以设置后的真实注册表状态为准，避免写失败时通知与实际不符
