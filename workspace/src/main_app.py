@@ -62,6 +62,7 @@ class MainApp:
             on_show=self._show_window,
             on_quit=self._quit_app,
             on_toggle_autostart=self._toggle_autostart,
+            on_autostart_state=lambda: self._autostart_intent,
         )
         self._tray.start()
         # pystray 线程的回调经队列投递，主线程定期 pump 取出执行（跨线程不能用 root.after）
@@ -1395,6 +1396,9 @@ class MainApp:
         # 以持久化的“用户意图”为准翻转，再写入注册表并落盘
         self._autostart_intent = not self._autostart_intent
         set_autostart(self._autostart_intent)
+        # 强制刷新托盘菜单（pystray 会缓存菜单文字，否则重开仍显示旧勾选态）
+        if self._tray is not None:
+            self._tray.refresh_menu()
         if self._autostart_intent:
             self._toast("✓ 已开启开机自启", "green")
         else:

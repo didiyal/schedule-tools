@@ -79,17 +79,20 @@ def _main_py():
 class TrayController:
     """托盘控制器：管理图标生命周期，把菜单动作投递回主线程"""
 
-    def __init__(self, root, on_show, on_quit, on_toggle_autostart):
+    def __init__(self, root, on_show, on_quit, on_toggle_autostart,
+                 on_autostart_state=None):
         """
         root: tkinter Tk
         on_show: 显示窗口回调（在主线程执行）
         on_quit: 退出回调（在主线程执行）
         on_toggle_autostart: 切换自启回调（在主线程执行）
+        on_autostart_state: 返回当前自启意图(bool)的回调，用于菜单勾选态
         """
         self.root = root
         self._on_show = on_show
         self._on_quit = on_quit
         self._on_toggle_autostart = on_toggle_autostart
+        self._on_autostart_state = on_autostart_state or autostart_enabled
         self._icon = None
         # 线程安全队列：pystray 线程投递回调，主线程 pump() 取出执行。
         # 不能直接 root.after()——从非主线程调用会抛 RuntimeError 并被静默吞掉。
@@ -114,7 +117,15 @@ class TrayController:
         self._icon.on_double_click = lambda *_: self._dispatch(self._on_show)
 
     def _autostart_label(self):
-        return "☑ 开机自启" if autostart_enabled() else "☐ 开机自启"
+        return "☑ 开机自启" if self._on_autostart_state() else "☐ 开机自启"
+
+    def refresh_menu(self):
+        """强制 pystray 重建菜单、重新求值动态标签（切换自启后调用）"""
+        if self._icon is not None:
+            try:
+                self._icon.update_menu()
+            except Exception:
+                pass
 
     def _dispatch(self, fn):
         """把回调投递到队列，由主线程 pump() 取出执行（线程安全）。"""
