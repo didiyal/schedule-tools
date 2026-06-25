@@ -253,10 +253,12 @@ class MainApp:
                              lambda e: self.canvas.configure(
                                  scrollregion=self.canvas.bbox("all")))
 
-        # 鼠标滚轮 — 直接绑定到 canvas
-        self.canvas.bind("<MouseWheel>", self._on_mousewheel)
-        self.canvas.bind("<Button-4>", self._on_mousewheel)
-        self.canvas.bind("<Button-5>", self._on_mousewheel)
+        # 鼠标滚轮 — 绑定到窗口级(bind_all)：停在卡片(子控件)上时事件发给
+        # 子控件而非 Canvas，Canvas 上的绑定不会触发。改用 bind_all 后任意位置
+        # 都能滚；_on_mousewheel 内按所属顶层窗口做坐标守卫，避免串扰计时面板
+        self.root.bind_all("<MouseWheel>", self._on_mousewheel, add="+")
+        self.root.bind_all("<Button-4>", self._on_mousewheel, add="+")
+        self.root.bind_all("<Button-5>", self._on_mousewheel, add="+")
 
         # 键盘快捷键 — 绑定到 card_frame
         self.card_frame.bind("<Up>", lambda e: self._key_move(-1))
@@ -272,6 +274,10 @@ class MainApp:
         self.canvas.itemconfig(self.card_frame_id, width=event.width)
 
     def _on_mousewheel(self, event):
+        # 仅当光标位于主窗口内时滚动主列表，不串扰计时面板
+        w = self.root.winfo_containing(event.x_root, event.y_root)
+        if w is None or self._toplevel_of(w) is not self.root:
+            return
         if event.num == 4:
             delta = -1
         elif event.num == 5:
@@ -279,6 +285,13 @@ class MainApp:
         else:
             delta = event.delta / 120
         self.canvas.yview_scroll(int(-delta), "units")
+
+    @staticmethod
+    def _toplevel_of(w):
+        try:
+            return w.winfo_toplevel()
+        except Exception:
+            return None
 
     # ── 键盘操作 ──
     def _key_move(self, direction):

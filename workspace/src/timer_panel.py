@@ -94,10 +94,12 @@ class TimerPanel:
                               lambda e: self.canvas.configure(
                                   scrollregion=self.canvas.bbox("all")))
 
-        # 鼠标滚轮
-        self.canvas.bind("<MouseWheel>", self._on_mousewheel)
-        self.canvas.bind("<Button-4>", self._on_mousewheel)
-        self.canvas.bind("<Button-5>", self._on_mousewheel)
+        # 鼠标滚轮 — 绑定到窗口级(bind_all)：停在面板内行(子控件)上时事件发给
+        # 子控件而非 Canvas，Canvas 上的绑定不会触发。改用 bind_all 后任意位置
+        # 都能滚；_on_mousewheel 内按所属顶层窗口做坐标守卫，只滚本面板不串扰主窗口
+        self.win.bind_all("<MouseWheel>", self._on_mousewheel, add="+")
+        self.win.bind_all("<Button-4>", self._on_mousewheel, add="+")
+        self.win.bind_all("<Button-5>", self._on_mousewheel, add="+")
 
         # 空面板提示
         self._empty_hint = tk.Label(self.inner_frame, text="暂无计时项\n双击列表中的待办加入",
@@ -244,6 +246,13 @@ class TimerPanel:
         self.canvas.itemconfig(self.inner_id, width=event.width)
 
     def _on_mousewheel(self, event):
+        # 仅当光标位于本面板内时滚动，不串扰主窗口
+        w = self.win.winfo_containing(event.x_root, event.y_root)
+        try:
+            if w is None or w.winfo_toplevel() is not self.win:
+                return
+        except Exception:
+            return
         if event.num == 4:
             delta = -1
         elif event.num == 5:
