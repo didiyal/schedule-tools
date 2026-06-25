@@ -339,10 +339,12 @@ class TimerPanel:
     # ── 显示 / 隐藏 ──
 
     def show(self):
-        if self._collapsed:
+        # 始终先 deiconify：面板可能被 hide() 隐藏（withdraw），
+        # 此时仅动画 y 坐标不会让它重新出现
+        self.win.deiconify()
+        if self._docked and self._collapsed:
             self._expand()
         else:
-            self.win.deiconify()
             self.win.lift()
             self.win.focus_force()
 
