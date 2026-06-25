@@ -42,6 +42,7 @@ class MainApp:
         self._undo_action = None
         self._dragging_tid: str | None = None        # 当前拖拽中的待办 id
         self._drag_ghost = None                       # 拖拽虚影 Toplevel
+        self._drop_ind = None                         # 拖拽落点指示线 Toplevel
 
         self._save_after_id = None
         self._main_tick_id = None
@@ -1007,15 +1008,93 @@ class MainApp:
             self._drag_ghost = None
 
     def _on_drag_move(self, tid, y_root):
-        """移动拖拽虚影跟随光标（略偏移，避免遮挡落点）。"""
-        if self._drag_ghost is None:
-            return
-        x = self.root.winfo_pointerx() + 14
-        y = self.root.winfo_pointery() + 10
+        """移动拖拽虚影跟随光标，并实时刷新落点指示线。"""
+        if self._drag_ghost is not None:
+            x = self.root.winfo_pointerx() + 14
+            y = self.root.winfo_pointery() + 10
+            try:
+                self._drag_ghost.geometry(f"+{x}+{y}")
+            except Exception:
+                pass
+        # 实时落点指示线（与 drop 用同一套计算，所见即所落）
+        res = self._drop_insert_index(self._drag_group_cards(tid), tid, y_root)
+        if res is None:
+            self._hide_drop_indicator()
+        else:
+            _, _, iy = res
+            self._show_drop_indicator(iy, tid)
+
+    def _drag_group_cards(self, dragged_tid):
+        """被拖项所在 _date 分组的卡片列表（视觉顺序）。"""
+        if dragged_tid not in self.todos:
+            return []
+        d_date = getattr(self.todos[dragged_tid], "_date", get_today_str())
+        return [c for c in self._cards
+                if isinstance(c, TodoCard)
+                and getattr(c.todo_widget, "_date", "") == d_date]
+
+    def _drop_insert_index(self, group_cards, dragged_tid, y_root):
+        """返回 (remaining, insert_at, indicator_y_root) 或 None（无效落点/组太小）。
+
+        落点必须在分组垂直跨度内，否则视为跨组 → 弹回（与 _reorder_in_group 一致）。
+        """
+        if len(group_cards) < 2:
+            return None
+        if next((c for c in group_cards
+                 if c.todo_widget.todo_id == dragged_tid), None) is None:
+            return None
+        remaining = [c for c in group_cards if c.todo_widget.todo_id != dragged_tid]
+        gtop = group_cards[0].winfo_rooty()
+        last = group_cards[-1]
+        gbot = last.winfo_rooty() + (last.winfo_height() or 1)
+        if y_root < gtop - 2 or y_root > gbot + 2:
+            return None
+        insert_at = len(remaining)
+        for i, c in enumerate(remaining):
+            cy = c.winfo_rooty()
+            ch = c.winfo_height() or 1
+            if y_root < cy + ch // 2:
+                insert_at = i
+                break
+        if insert_at >= len(remaining):
+            prev = remaining[-1]
+            iy = prev.winfo_rooty() + (prev.winfo_height() or 1)
+        else:
+            iy = remaining[insert_at].winfo_rooty()
+        return remaining, insert_at, iy
+
+    def _show_drop_indicator(self, y_root, dragged_tid):
+        """显示/移动一条蓝色细线，标记当前松手后的插入位置。"""
+        if self._drop_ind is None:
+            ind = tk.Toplevel(self.root)
+            ind.overrideredirect(True)
+            ind.attributes("-topmost", True)
+            ind.configure(bg=C["blue"], highlightthickness=0, bd=0)
+            self._drop_ind = ind
+        group = self._drag_group_cards(dragged_tid)
+        x = group[0].winfo_rootx() if group else self.root.winfo_pointerx()
+        w = max((c.winfo_width() for c in group), default=240)
         try:
-            self._drag_ghost.geometry(f"+{x}+{y}")
+            self._drop_ind.geometry(f"{max(w, 80)}x3+{x}+{y_root - 1}")
+            self._drop_ind.deiconify()
+            self._drop_ind.lift()
         except Exception:
             pass
+
+    def _hide_drop_indicator(self):
+        if self._drop_ind is not None:
+            try:
+                self._drop_ind.withdraw()
+            except Exception:
+                pass
+
+    def _destroy_drop_indicator(self):
+        if self._drop_ind is not None:
+            try:
+                self._drop_ind.destroy()
+            except Exception:
+                pass
+            self._drop_ind = None
 
     def _on_drag_drop(self, tid, y_root):
         self._clear_drag_highlight()
@@ -1027,6 +1106,7 @@ class MainApp:
 
     def _clear_drag_highlight(self):
         self._destroy_drag_ghost()
+        self._destroy_drop_indicator()
         if self._dragging_tid:
             for c in self._cards:
                 if (isinstance(c, TodoCard)
@@ -1036,42 +1116,22 @@ class MainApp:
             self._dragging_tid = None
 
     def _reorder_in_group(self, dragged_tid, y_root):
-        """在同 _date 分组内重排 _order；跨组落点 → 不变（弹回）"""
+        """在同 _date 分组内重排 _order；跨组落点 → 不变（弹回）。"""
         if dragged_tid not in self.todos:
             return
-        dragged = self.todos[dragged_tid]
-        d_date = getattr(dragged, "_date", get_today_str())
-        group_cards = [c for c in self._cards
-                       if isinstance(c, TodoCard)
-                       and getattr(c.todo_widget, "_date", "") == d_date]
-        if len(group_cards) < 2:
+        group_cards = self._drag_group_cards(dragged_tid)
+        res = self._drop_insert_index(group_cards, dragged_tid, y_root)
+        if res is None:
             return
+        remaining, insert_at, _ = res
 
-        # 被拖卡片当前是否还在组内（落点可能在组外）
-        dragged_card = next((c for c in group_cards
-                             if c.todo_widget.todo_id == dragged_tid), None)
-        if dragged_card is None:
-            return
-
-        # 被拖卡片在原组中的索引
+        # 被拖卡片在原组（含自身、视觉顺序）中的索引，用于判断位置是否变化
         cur_idx = next((i for i, c in enumerate(group_cards)
                         if c.todo_widget.todo_id == dragged_tid), 0)
-
-        # 剩余卡片（视觉顺序），在其中定位插入点
-        remaining = [c for c in group_cards if c.todo_widget.todo_id != dragged_tid]
-        insert_at = len(remaining)
-        for i, c in enumerate(remaining):
-            cy = c.winfo_rooty()
-            ch = c.winfo_height() or 1
-            if y_root < cy + ch // 2:
-                insert_at = i
-                break
-
-        # 位置无变化（基于移除后的索引空间，只需判等）
         if insert_at == cur_idx:
             return
 
-        # 重建顺序：剩余 + 拖拽项插入
+        dragged = self.todos[dragged_tid]
         ordered = [c.todo_widget for c in remaining]
         ordered.insert(insert_at, dragged)
 
