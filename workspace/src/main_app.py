@@ -43,6 +43,7 @@ class MainApp:
         self._dragging_tid: str | None = None        # 当前拖拽中的待办 id
         self._drag_ghost = None                       # 拖拽虚影 Toplevel
         self._drop_ind = None                         # 拖拽落点指示线 Toplevel
+        self._autostart_intent = autostart_enabled()  # 用户期望的自启状态（持久化）
 
         self._save_after_id = None
         self._main_tick_id = None
@@ -50,6 +51,8 @@ class MainApp:
         self._build_ui()
         self.timer_panel = TimerPanel(self.root, on_state_change=self._on_todo_state_change)
         self._load_todos()
+        # 启动时按持久化的意图同步注册表 —— 即使关机/清理工具清掉了 Run 键也能恢复
+        set_autostart(self._autostart_intent)
         self._loading = False
         self._refresh_view()
 
@@ -1286,6 +1289,7 @@ class MainApp:
         data = {
             "panel_x": self.timer_panel.get_position()[0],
             "panel_y": self.timer_panel.get_position()[1],
+            "autostart": self._autostart_intent,
             "todos": [],
         }
         for w in self.todos.values():
@@ -1337,6 +1341,8 @@ class MainApp:
             data = raw.get("todos", [])
             panel_x = raw.get("panel_x", 100)
             panel_y = raw.get("panel_y", 100)
+            if "autostart" in raw:
+                self._autostart_intent = bool(raw["autostart"])
 
         self.timer_panel.set_position(panel_x, panel_y)
 
@@ -1386,12 +1392,34 @@ class MainApp:
         self.root.focus_force()
 
     def _toggle_autostart(self):
-        # 以设置后的真实注册表状态为准，避免写失败时通知与实际不符
-        set_autostart(not autostart_enabled())
-        if autostart_enabled():
-            self._tray.notify("开机自启", "已开启开机自启")
+        # 以持久化的“用户意图”为准翻转，再写入注册表并落盘
+        self._autostart_intent = not self._autostart_intent
+        set_autostart(self._autostart_intent)
+        if self._autostart_intent:
+            self._toast("✓ 已开启开机自启", "green")
         else:
-            self._tray.notify("开机自启", "已关闭开机自启")
+            self._toast("已关闭开机自启", "text_sec")
+        self._schedule_save()
+
+    def _toast(self, text, color_key="blue"):
+        """右下角短暂提示条，~2 秒后自动消失 —— 给托盘菜单操作即时可见的反馈。"""
+        t = tk.Toplevel(self.root)
+        t.overrideredirect(True)
+        t.attributes("-topmost", True)
+        try:
+            t.attributes("-alpha", 0.95)
+        except Exception:
+            pass
+        bg = C[color_key]
+        t.configure(bg=bg)
+        tk.Label(t, text=text, bg=bg, fg="white",
+                 font=(FONT, 11, "bold"), padx=22, pady=11).pack()
+        t.update_idletasks()
+        w = t.winfo_reqwidth()
+        h = t.winfo_reqheight()
+        t.geometry(f"+{t.winfo_screenwidth() - w - 24}"
+                   f"+{t.winfo_screenheight() - h - 64}")
+        t.after(2000, t.destroy)
 
     def _quit_app(self):
         """真正退出：保存 + 停托盘 + 销毁（由 mainloop 自然结束，不强制 exit）"""
