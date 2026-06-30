@@ -14,7 +14,8 @@ else:
 SAVE_FILE = os.path.join(_BASE, "data", "todos.json")
 ARCHIVE_FILE = os.path.join(_BASE, "data", "archive.json")
 
-from .constants import C, FONT
+import customtkinter as ctk
+from .constants import C, FONT, RADIUS
 from .utils import flat_btn, get_today_str, fmt_date_cn, fmt_time
 from .todo_widget import TodoWidget
 from .date_picker import DatePickerDialog
@@ -25,11 +26,13 @@ from .tray import TrayController, autostart_enabled, set_autostart
 
 class MainApp:
     def __init__(self):
-        self.root = tk.Tk()
+        self.root = ctk.CTk()
         self.root.title("待办计时器")
-        self.root.geometry("560x660")
-        self.root.configure(bg=C["bg"])
-        self.root.minsize(480, 480)
+        ctk.set_appearance_mode("light")
+        ctk.set_default_color_theme("blue")  # 仅取结构，颜色由各控件 fg_color 覆盖
+        self.root.geometry("720x780")
+        self.root.minsize(560, 620)
+        self.root.configure(fg_color=C["bg"])
 
         self.todos: dict[str, TodoWidget] = {}
         self._next_id = 0
