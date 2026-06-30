@@ -82,37 +82,41 @@ class MainApp:
     # ── UI 构建 ────────────────────────────────────────
     def _build_ui(self):
         # ── 顶栏 ──
-        hdr = tk.Frame(self.root, bg=C["surface"], height=48)
+        hdr = ctk.CTkFrame(self.root, fg_color=C["surface"], height=48, corner_radius=0)
         hdr.pack(fill=tk.X)
         hdr.pack_propagate(False)
 
-        tk.Label(hdr, text="待办计时器", bg=C["surface"], fg=C["text"],
-                 font=(FONT, 15, "bold")).pack(side=tk.LEFT, padx=20, pady=10)
+        ctk.CTkLabel(hdr, text="待办计时器", fg_color=C["surface"],
+                     text_color=C["text"], font=(FONT, 15, "bold")).pack(
+            side=tk.LEFT, padx=20, pady=10)
 
-        self.stat_lbl = tk.Label(hdr, text="", bg=C["surface"], fg=C["text_sec"],
-                                 font=(FONT, 10))
+        self.stat_lbl = ctk.CTkLabel(hdr, text="", fg_color=C["surface"],
+                                     text_color=C["text_sec"], font=(FONT, 10))
         self.stat_lbl.pack(side=tk.RIGHT, padx=20, pady=10)
 
-        tk.Frame(self.root, bg=C["border"], height=1).pack(fill=tk.X)
+        ctk.CTkFrame(self.root, fg_color=C["border"], height=1).pack(fill=tk.X)
 
         # ── 日期导航栏 ──
-        date_bar = tk.Frame(self.root, bg=C["surface"])
+        date_bar = ctk.CTkFrame(self.root, fg_color=C["surface"])
         date_bar.pack(fill=tk.X)
 
-        date_inner = tk.Frame(date_bar, bg=C["surface"])
+        date_inner = ctk.CTkFrame(date_bar, fg_color=C["surface"])
         date_inner.pack(fill=tk.X, padx=16, pady=(10, 4))
 
-        self.btn_prev = tk.Label(date_inner, text="‹", bg=C["surface"], fg=C["blue"],
-                                 font=(FONT, 20, "bold"), cursor="hand2")
+        self.btn_prev = ctk.CTkLabel(date_inner, text="‹", fg_color=C["surface"],
+                                     text_color=C["blue"],
+                                     font=(FONT, 20, "bold"), cursor="hand2")
         self.btn_prev.pack(side=tk.LEFT, padx=(0, 8))
         self.btn_prev.bind("<Button-1>", lambda e: self._shift_date(-1))
 
-        self.date_lbl = tk.Label(date_inner, text="", bg=C["surface"], fg=C["text"],
-                                 font=(FONT, 14, "bold"))
+        self.date_lbl = ctk.CTkLabel(date_inner, text="", fg_color=C["surface"],
+                                     text_color=C["text"],
+                                     font=(FONT, 14, "bold"))
         self.date_lbl.pack(side=tk.LEFT)
 
-        self.btn_next = tk.Label(date_inner, text="›", bg=C["surface"], fg=C["blue"],
-                                 font=(FONT, 20, "bold"), cursor="hand2")
+        self.btn_next = ctk.CTkLabel(date_inner, text="›", fg_color=C["surface"],
+                                     text_color=C["blue"],
+                                     font=(FONT, 20, "bold"), cursor="hand2")
         self.btn_next.pack(side=tk.LEFT, padx=(8, 0))
         self.btn_next.bind("<Button-1>", lambda e: self._shift_date(1))
 
@@ -120,44 +124,42 @@ class MainApp:
                  C["blue_light"], C["blue"], font_size=9, pady=3, padx=12,
                  fg=C["blue"]).pack(side=tk.LEFT, padx=(16, 0))
 
-        self.day_total_lbl = tk.Label(date_inner, text="", bg=C["surface"],
-                                      fg=C["text_sec"], font=(FONT, 10))
+        self.day_total_lbl = ctk.CTkLabel(date_inner, text="", fg_color=C["surface"],
+                                          text_color=C["text_sec"], font=(FONT, 10))
         self.day_total_lbl.pack(side=tk.RIGHT)
 
         # ── 筛选标签栏 ──
-        filter_bar = tk.Frame(self.root, bg=C["surface"])
+        filter_bar = ctk.CTkFrame(self.root, fg_color=C["surface"])
         filter_bar.pack(fill=tk.X)
-
-        filter_inner = tk.Frame(filter_bar, bg=C["surface"])
+        filter_inner = ctk.CTkFrame(filter_bar, fg_color=C["surface"])
         filter_inner.pack(fill=tk.X, padx=16, pady=(0, 8))
 
-        self.filter_chips = {}
-        for key, label in [("active", "未完成"), ("completed", "已完成"), ("all", "全部")]:
-            chip = tk.Label(
-                filter_inner, text=label, bg=C["surface"], fg=C["text_sec"],
-                font=(FONT, 10), cursor="hand2", padx=12, pady=3,
-            )
-            chip.pack(side=tk.LEFT, padx=(0, 4))
-            chip.bind("<Button-1>", lambda e, k=key: self._set_filter(k))
-            chip.bind("<Enter>", lambda e, c=chip: c.configure(fg=C["blue"]))
-            chip.bind("<Leave>", lambda e, c=chip, k=key:
-                      c.configure(fg=C["blue"] if self.filter_state == k else C["text_sec"]))
-            self.filter_chips[key] = chip
+        self._seg_map = {"未完成": "active", "已完成": "completed", "全部": "all"}
+        self.filter_seg = ctk.CTkSegmentedButton(
+            filter_inner,
+            values=["未完成", "已完成", "全部"],
+            command=self._on_seg_filter,
+            corner_radius=RADIUS["pill"],
+            selected_color=C["blue"], selected_hover_color=C["blue_hover"],
+            unselected_color=C["bg"], unselected_hover_color=C["border"],
+            text_color="#FFFFFF", font=(FONT, 11),
+        )
+        self.filter_seg.set("未完成")
+        self.filter_seg.pack(side=tk.LEFT)
 
-        tk.Frame(self.root, bg=C["border"], height=1).pack(fill=tk.X)
+        ctk.CTkFrame(self.root, fg_color=C["border"], height=1).pack(fill=tk.X)
 
         # ── 输入卡片 ──
-        card_inp = tk.Frame(self.root, bg=C["surface"])
+        card_inp = ctk.CTkFrame(self.root, fg_color=C["surface"])
         card_inp.pack(fill=tk.X, padx=20, pady=(12, 8))
 
-        card_inp_inner = tk.Frame(card_inp, bg=C["surface"])
+        card_inp_inner = ctk.CTkFrame(card_inp, fg_color=C["surface"])
         card_inp_inner.pack(fill=tk.X, padx=12, pady=12)
 
-        self.entry = tk.Entry(card_inp_inner, bg=C["bg"], fg=C["text"],
-                              insertbackground=C["blue"], relief=tk.SOLID,
-                              font=(FONT, 12), bd=1,
-                              highlightthickness=0)
-        self.entry.pack(side=tk.LEFT, fill=tk.X, expand=True, ipady=8, padx=(0, 10))
+        self.entry = ctk.CTkEntry(card_inp_inner, fg_color=C["bg"], text_color=C["text"],
+                                  border_color=C["border"], border_width=1,
+                                  corner_radius=RADIUS["card"], font=(FONT, 12), height=36)
+        self.entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
         self.entry.bind("<Return>", lambda e: self._add_todo())
         self.entry.focus_set()
 
@@ -358,13 +360,16 @@ class MainApp:
         self._search_after_id = self.root.after(300, self._refresh_view)
 
     # ── 筛选 ──
+    def _on_seg_filter(self, value):
+        self._set_filter(self._seg_map[value])
+
     def _set_filter(self, state):
         self.filter_state = state
-        for key, chip in self.filter_chips.items():
-            if key == state:
-                chip.configure(fg=C["blue"], font=(FONT, 10, "bold"))
-            else:
-                chip.configure(fg=C["text_sec"], font=(FONT, 10))
+        # 同步分段按钮选中态（逆映射 state→中文键）
+        for cn, st in self._seg_map.items():
+            if st == state:
+                self.filter_seg.set(cn)
+                break
         self._refresh_view()
 
     # ── 日期 ──
@@ -472,12 +477,6 @@ class MainApp:
     # ── 视图渲染 ────────────────────────────────────────
     def _refresh_view(self):
         self.date_lbl.configure(text=fmt_date_cn(self.current_date))
-
-        for key, chip in self.filter_chips.items():
-            if key == self.filter_state:
-                chip.configure(fg=C["blue"], font=(FONT, 10, "bold"))
-            else:
-                chip.configure(fg=C["text_sec"], font=(FONT, 10))
 
         titles = {"all": "全部待办", "active": "未完成", "completed": "已完成"}
         self.list_title_lbl.configure(text=titles.get(self.filter_state, "待办列表"))
