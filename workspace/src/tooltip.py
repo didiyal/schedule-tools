@@ -5,9 +5,10 @@ from .constants import C, FONT
 class ToolTip:
     """延迟出现的悬浮提示 — 鼠标停留 500ms 后显示"""
 
-    def __init__(self, widget, text_fn):
+    def __init__(self, widget, text_fn, min_len=16):
         self.widget = widget
         self.text_fn = text_fn
+        self.min_len = min_len
         self.tip = None
         self._after_id = None
         widget.bind("<Enter>", self._schedule)
@@ -18,7 +19,7 @@ class ToolTip:
             self.widget.after_cancel(self._after_id)
         # 只对足够长的文字显示提示
         text = self.text_fn()
-        if not text or len(text) <= 16:
+        if not text or len(text) <= self.min_len:
             return
         self._after_id = self.widget.after(500, self._show)
 

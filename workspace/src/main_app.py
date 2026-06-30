@@ -22,6 +22,23 @@ from .date_picker import DatePickerDialog
 from .todo_card import TodoCard, SectionHeader, EmptyHint
 from .timer_panel import TimerPanel
 from .tray import TrayController, autostart_enabled, set_autostart
+from .tooltip import ToolTip
+
+
+def _icon_btn(parent, text, cmd, tip, danger=False):
+    """纯图标圆角按钮 + tooltip。danger=True 时 hover 变红。
+
+    用 min_len=0 让短文字提示（"删除"/"标重点"…）也能正常显示。
+    """
+    btn = ctk.CTkButton(
+        parent, text=text, command=cmd, width=32, height=32,
+        fg_color="transparent",
+        hover_color=(C["red_light"] if danger else C["blue_light"]),
+        text_color=(C["red"] if danger else C["text_sec"]),
+        corner_radius=RADIUS["button"], font=(FONT, 14), border_width=0,
+    )
+    ToolTip(btn, lambda: tip, min_len=0)
+    return btn
 
 
 class MainApp:
@@ -167,49 +184,37 @@ class MainApp:
                  C["blue"], C["blue_hover"], font_size=12, pady=7, padx=20).pack(
             side=tk.LEFT)
 
-        # ── 底部按钮（两行）— 提前 pack，确保窗口缩小时不被挤出 ──
-        bf = tk.Frame(self.root, bg=C["bg"])
-        bf.pack(side=tk.BOTTOM, fill=tk.X, padx=20, pady=(0, 16))
+        # ── 工具栏（主操作 + 选中操作图标栏）—— 根治横向截断 ──
+        bf = ctk.CTkFrame(self.root, fg_color=C["bg"], corner_radius=0)
+        bf.pack(side=tk.BOTTOM, fill=tk.X, padx=20, pady=(0, 12))
 
-        # 第一行：操作按钮
-        r1 = tk.Frame(bf, bg=C["bg"])
-        r1.pack(fill=tk.X, pady=(0, 4))
+        # 主操作（文字按钮）
+        row_main = ctk.CTkFrame(bf, fg_color=C["bg"])
+        row_main.pack(fill=tk.X, pady=(0, 6))
+        flat_btn(row_main, "▶ 全部开始", self._start_all,
+                 C["green"], C["green_hover"], font_size=11).pack(side=tk.LEFT, padx=(0, 8))
+        flat_btn(row_main, "⏸ 全部暂停", self._pause_all,
+                 C["orange"], C["orange_hover"], font_size=11).pack(side=tk.LEFT, padx=(0, 8))
+        flat_btn(row_main, "🗄 清除已完成", self._archive_completed,
+                 C["surface"], C["bg"], font_size=11, fg=C["text_ter"]).pack(side=tk.RIGHT)
 
-        flat_btn(r1, "▶  全部开始", self._start_all,
-                 C["green"], C["green_hover"], font_size=10, pady=5, padx=10).pack(
-            side=tk.LEFT, padx=(0, 4))
-        flat_btn(r1, "⏸  全部暂停", self._pause_all,
-                 C["orange"], C["orange_hover"], font_size=10, pady=5, padx=10).pack(
-            side=tk.LEFT, padx=(0, 4))
-        flat_btn(r1, "★  标重点", self._toggle_star_selected,
-                 C["orange"], C["orange_hover"], font_size=10, pady=5, padx=10).pack(
-            side=tk.LEFT, padx=(0, 4))
-        flat_btn(r1, "✓  标记完成", self._toggle_complete_selected,
-                 C["green"], C["green_hover"], font_size=10, pady=5, padx=10).pack(
-            side=tk.LEFT, padx=(0, 4))
-        flat_btn(r1, "✎  编辑", self._edit_selected,
-                 C["blue"], C["blue_hover"], font_size=10, pady=5, padx=10).pack(
-            side=tk.LEFT, padx=(0, 4))
-        flat_btn(r1, "📅  改期", self._change_date,
-                 C["text_sec"], C["text_ter"], font_size=10, pady=5, padx=10).pack(
-            side=tk.LEFT, padx=(0, 4))
+        # 选中操作（纯图标 + tooltip）
+        row_icon = ctk.CTkFrame(bf, fg_color=C["bg"])
+        row_icon.pack(fill=tk.X)
 
-        # 第二行：排序 + 删除 + 归档
-        r2 = tk.Frame(bf, bg=C["bg"])
-        r2.pack(fill=tk.X)
+        def sep(p):
+            ctk.CTkFrame(p, fg_color=C["border"], width=1).pack(
+                side=tk.LEFT, fill=tk.Y, padx=6, pady=2)
 
-        flat_btn(r2, "↑  上移", self._move_up_selected,
-                 C["text_sec"], C["text_ter"], font_size=10, pady=5, padx=10).pack(
-            side=tk.LEFT, padx=(0, 4))
-        flat_btn(r2, "↓  下移", self._move_down_selected,
-                 C["text_sec"], C["text_ter"], font_size=10, pady=5, padx=10).pack(
-            side=tk.LEFT, padx=(0, 4))
-        flat_btn(r2, "🗑  删除", self._delete_selected,
-                 C["red"], C["red_hover"], font_size=10, pady=5, padx=10).pack(
-            side=tk.LEFT, padx=(0, 4))
-        flat_btn(r2, "🗄  清除已完成", self._archive_completed,
-                 C["text_ter"], C["red_light"], font_size=10, pady=5, padx=10).pack(
-            side=tk.RIGHT)
+        _icon_btn(row_icon, "★", self._toggle_star_selected, "标重点").pack(side=tk.LEFT, padx=2)
+        _icon_btn(row_icon, "✓", self._toggle_complete_selected, "标记完成").pack(side=tk.LEFT, padx=2)
+        _icon_btn(row_icon, "✎", self._edit_selected, "编辑").pack(side=tk.LEFT, padx=2)
+        _icon_btn(row_icon, "📅", self._change_date, "改期").pack(side=tk.LEFT, padx=2)
+        sep(row_icon)
+        _icon_btn(row_icon, "↑", self._move_up_selected, "上移").pack(side=tk.LEFT, padx=2)
+        _icon_btn(row_icon, "↓", self._move_down_selected, "下移").pack(side=tk.LEFT, padx=2)
+        sep(row_icon)
+        _icon_btn(row_icon, "🗑", self._delete_selected, "删除", danger=True).pack(side=tk.LEFT, padx=2)
 
         # ── 列表卡片 ──
         card_list = tk.Frame(self.root, bg=C["surface"])
