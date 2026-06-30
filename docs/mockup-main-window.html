@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<title>待办计时器 v1.1 — UI 现代化预览</title>
+<style>
+  :root{
+    --blue:#3370FF; --blue_hover:#4E83FD; --blue_light:#E1EAFF;
+    --bg:#F5F6F7; --surface:#FFFFFF; --surface_2:#FAFBFC;
+    --text:#1F2329; --text_sec:#646A73; --text_ter:#8F959E;
+    --border:#E5E6EB; --border_soft:#EFF0F2;
+    --green:#00B578; --green_light:#E8F8EF;
+    --orange:#FF8F1F; --orange_light:#FFF3E6;
+    --red:#F53F3F; --red_light:#FFE4E4;
+    --strike:#BBBBC4;
+    --r_card:10px; --r_btn:8px; --r_pill:999px;
+    --shadow_win:0 24px 60px rgba(28,27,26,.16), 0 8px 16px rgba(28,27,26,.07);
+    --shadow_card:0 1px 2px rgba(28,27,26,.05), 0 1px 3px rgba(28,27,26,.04);
+    --shadow_pop:0 1px 2px rgba(28,27,26,.05), 0 6px 24px rgba(28,27,26,.07);
+  }
+  *{box-sizing:border-box; margin:0; padding:0}
+  html,body{height:100%}
+  body{
+    font-family:"Microsoft YaHei","微软雅黑",-apple-system,"Segoe UI",system-ui,sans-serif;
+    color:var(--text);
+    background:linear-gradient(180deg,#e7e9ee,#eef0f4);
+    display:flex; flex-direction:column; align-items:center; justify-content:flex-start;
+    padding:40px 16px 60px; min-height:100%;
+  }
+  .caption{color:var(--text_ter); font-size:12px; margin-bottom:14px; letter-spacing:.5px}
+
+  /* ── 桌面窗口 ── */
+  .window{
+    width:720px; max-width:100%;
+    background:var(--surface);
+    border-radius:12px;
+    box-shadow:var(--shadow_win);
+    overflow:hidden;
+    display:flex; flex-direction:column;
+    border:1px solid var(--border_soft);
+  }
+  /* 标题栏 */
+  .titlebar{
+    height:36px; flex:0 0 auto;
+    display:flex; align-items:center; justify-content:space-between;
+    padding:0 6px 0 14px;
+    background:linear-gradient(180deg,#fcfcfd,#f4f5f7);
+    border-bottom:1px solid var(--border);
+    user-select:none;
+  }
+  .titlebar .name{font-size:12px; color:var(--text_sec); display:flex; align-items:center; gap:7px}
+  .titlebar .dot{width:14px;height:14px;border-radius:4px;background:linear-gradient(135deg,var(--blue),#5b8cff);box-shadow:0 1px 2px rgba(51,112,255,.4)}
+  .winbtns{display:flex; gap:2px}
+  .winbtns span{width:34px;height:28px;display:flex;align-items:center;justify-content:center;border-radius:6px;color:var(--text_ter);font-size:12px;cursor:default}
+  .winbtns span:hover{background:var(--border_soft)}
+  .winbtns .close:hover{background:var(--red);color:#fff}
+
+  .body{padding:14px 20px 18px; display:flex; flex-direction:column; gap:11px; background:var(--surface)}
+
+  /* 日期 + 统计 行 */
+  .daterow{display:flex; align-items:center; justify-content:space-between}
+  .date-nav{display:flex; align-items:center; gap:6px}
+  .nav-arrow{width:26px;height:26px;display:flex;align-items:center;justify-content:center;border-radius:var(--r_btn);color:var(--blue);font-size:18px;font-weight:700;cursor:default}
+  .nav-arrow:hover{background:var(--blue_light)}
+  .date-text{font-size:14px;font-weight:700;padding:0 2px}
+  .today-pill{margin-left:8px;border:1px solid var(--blue_light);background:var(--blue_light);color:var(--blue);
+    font-size:12px;padding:3px 12px;border-radius:var(--r_pill);cursor:default}
+  .today-pill:hover{background:#d4e2ff}
+  .stats{font-size:12px;color:var(--text_ter)}
+
+  /* 分段筛选 */
+  .segmented{display:inline-flex;background:#eef0f2;padding:3px;border-radius:var(--r_pill);gap:2px;align-self:flex-start}
+  .segmented .seg{font-size:12px;color:var(--text_sec);padding:5px 16px;border-radius:var(--r_pill);cursor:default;transition:.15s}
+  .segmented .seg:hover{color:var(--text)}
+  .segmented .seg.active{background:var(--surface);color:var(--blue);font-weight:600;box-shadow:var(--shadow_card)}
+
+  /* 输入卡 */
+  .input-card{display:flex;align-items:center;gap:8px;background:var(--surface_2);
+    border:1px solid var(--border);border-radius:var(--r_card);padding:6px 6px 6px 14px}
+  .input-card .field{flex:1;font-size:13px;color:var(--text_ter)}
+  .add-btn{background:var(--blue);color:#fff;border:none;border-radius:var(--r_btn);
+    padding:8px 18px;font-size:13px;font-weight:600;cursor:default;display:flex;align-items:center;gap:5px}
+  .add-btn:hover{background:var(--blue_hover)}
+
+  /* 主操作工具栏 */
+  .toolbar-primary{display:flex;align-items:center;justify-content:space-between}
+  .tg{display:flex;gap:8px}
+  .pbtn{border:none;border-radius:var(--r_btn);padding:7px 14px;font-size:12px;font-weight:600;color:#fff;cursor:default;display:flex;align-items:center;gap:5px}
+  .pbtn.green{background:var(--green)} .pbtn.green:hover{background:#00C788}
+  .pbtn.orange{background:var(--orange)} .pbtn.orange:hover{background:#FFA340}
+  .pbtn.subtle{background:#fff;color:var(--text_ter);border:1px solid var(--border)}
+  .pbtn.subtle:hover{background:var(--surface_2);color:var(--text_sec)}
+
+  /* 选中操作：纯图标工具栏 */
+  .toolbar-icons{display:flex;align-items:center;gap:4px}
+  .igroup{display:flex;align-items:center;gap:2px}
+  .isep{width:1px;height:20px;background:var(--border);margin:0 6px}
+  .icon-btn{position:relative;width:32px;height:32px;display:flex;align-items:center;justify-content:center;
+    border-radius:var(--r_btn);background:transparent;border:1px solid transparent;color:var(--text_sec);
+    font-size:14px;cursor:default;transition:.12s}
+  .icon-btn:hover{background:var(--blue_light);color:var(--blue);border-color:#dbe6ff}
+  .icon-btn.danger:hover{background:var(--red_light);color:var(--red);border-color:#f5c6c2}
+  .icon-btn.dim{color:var(--text_ter);opacity:.55}
+  /* tooltip */
+  .icon-btn[data-tip]:hover::after{
+    content:attr(data-tip);position:absolute;top:calc(100% + 6px);left:50%;transform:translateX(-50%);
+    background:#1F2329;color:#fff;font-size:11px;font-weight:500;padding:4px 9px;border-radius:6px;
+    white-space:nowrap;pointer-events:none;box-shadow:var(--shadow_pop);z-index:30;
+  }
+
+  /* 列表头 */
+  .listhead{display:flex;align-items:center;justify-content:space-between;margin-top:2px}
+  .listhead .title{font-size:13px;font-weight:700}
+  .search{display:flex;align-items:center;gap:6px;background:var(--bg);border:1px solid var(--border);
+    border-radius:var(--r_btn);padding:4px 10px;color:var(--text_ter);font-size:12px}
+  .search input{border:none;background:transparent;outline:none;font-size:12px;color:var(--text);width:120px;font-family:inherit}
+
+  .divider{height:1px;background:var(--border);margin:1px 0 3px}
+
+  /* 卡片 */
+  .cards{display:flex;flex-direction:column;gap:6px}
+  .card{display:flex;align-items:stretch;background:var(--surface);border:1px solid var(--border_soft);
+    border-radius:var(--r_card);box-shadow:var(--shadow_card);overflow:hidden;cursor:default;transition:.1s}
+  .card:hover{background:#f7f8fa;border-color:var(--border)}
+  .card.sel{background:var(--blue_light);border-color:#cddcff}
+  .accent{width:3px;flex:0 0 auto;background:var(--border)}
+  .accent.blue{background:var(--blue)} .accent.green{background:var(--green)} .accent.orange{background:var(--orange)}
+  .row{display:flex;align-items:center;gap:9px;padding:9px 12px;flex:1;min-width:0}
+  .seq{font-size:12px;color:var(--text_ter);width:16px;text-align:center}
+  .star{font-size:12px;color:var(--orange);width:12px}
+  .star.off{color:var(--text_ter);opacity:.0}
+  .status{font-size:13px;width:14px;text-align:center}
+  .status.run{color:var(--blue)} .status.idle{color:var(--text_ter)} .status.done{color:var(--green)}
+  .txt{flex:1;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .txt.done{color:var(--strike);text-decoration:line-through}
+  .txt.dim{color:var(--text_ter)}
+  .tag{font-size:11px;padding:2px 8px;border-radius:var(--r_pill);margin-right:5px;white-space:nowrap}
+  .tag.rem{background:var(--orange_light);color:var(--orange)}
+  .tag.done{background:var(--green_light);color:var(--green)}
+  .tag.date{color:var(--text_ter)}
+  .time{font-family:"Consolas","Cascadia Mono",monospace;font-size:13px;color:var(--text);margin-left:4px}
+  .time.done{color:var(--strike)}
+  .hidden-mark{color:var(--text_ter);font-size:12px;margin-right:4px}
+
+  /* 底部留白条，模拟窗口底 */
+  .footer-pad{height:4px;flex:0 0 auto}
+
+  .legend{margin-top:22px;width:720px;max-width:100%;display:flex;gap:10px;flex-wrap:wrap;color:var(--text_ter);font-size:11.5px}
+  .legend b{color:var(--text_sec);font-weight:600}
+</style>
+</head>
+<body>
+  <div class="caption">待办计时器 v1.1 — UI 现代化预览（customtkinter 风格 · 浅色 · 720×780）</div>
+
+  <div class="window">
+    <!-- 标题栏 -->
+    <div class="titlebar">
+      <div class="name"><span class="dot"></span>待办计时器</div>
+      <div class="winbtns"><span>—</span><span class="close">✕</span></div>
+    </div>
+
+    <div class="body">
+      <!-- 日期 + 统计 -->
+      <div class="daterow">
+        <div class="date-nav">
+          <span class="nav-arrow">‹</span>
+          <span class="date-text">2026年6月30日 周二</span>
+          <span class="nav-arrow">›</span>
+          <span class="today-pill">今天</span>
+        </div>
+        <div class="stats">今日 3/5 · 累计 1h20m</div>
+      </div>
+
+      <!-- 分段筛选 -->
+      <div class="segmented">
+        <span class="seg active">未完成</span>
+        <span class="seg">已完成</span>
+        <span class="seg">全部</span>
+      </div>
+
+      <!-- 输入卡 -->
+      <div class="input-card">
+        <span class="field">输入新待办…</span>
+        <button class="add-btn">＋ 添加</button>
+      </div>
+
+      <!-- 主操作 -->
+      <div class="toolbar-primary">
+        <div class="tg">
+          <button class="pbtn green">▶ 全部开始</button>
+          <button class="pbtn orange">⏸ 全部暂停</button>
+        </div>
+        <button class="pbtn subtle">🗄 清除已完成</button>
+      </div>
+
+      <!-- 选中操作：纯图标 + tooltip -->
+      <div class="toolbar-icons">
+        <div class="igroup">
+          <span class="icon-btn" data-tip="标重点">★</span>
+          <span class="icon-btn" data-tip="标记完成">✓</span>
+          <span class="icon-btn" data-tip="编辑">✎</span>
+          <span class="icon-btn" data-tip="改期">📅</span>
+        </div>
+        <span class="isep"></span>
+        <div class="igroup">
+          <span class="icon-btn" data-tip="上移">↑</span>
+          <span class="icon-btn" data-tip="下移">↓</span>
+        </div>
+        <span class="isep"></span>
+        <div class="igroup">
+          <span class="icon-btn danger" data-tip="删除">🗑</span>
+        </div>
+      </div>
+
+      <!-- 列表头 -->
+      <div class="listhead">
+        <span class="title">待办列表</span>
+        <div class="search">🔍 <input placeholder="搜索…" /></div>
+      </div>
+      <div class="divider"></div>
+
+      <!-- 卡片 -->
+      <div class="cards">
+        <div class="card sel">
+          <div class="accent blue"></div>
+          <div class="row">
+            <span class="seq">①</span><span class="star">★</span><span class="status run">●</span>
+            <span class="txt">写周报（本周进度 + 下周计划）</span>
+            <span class="tag rem">⏰ 00:17</span>
+            <span class="time">00:12:30</span>
+          </div>
+        </div>
+        <div class="card">
+          <div class="accent"></div>
+          <div class="row">
+            <span class="seq">②</span><span class="star off">★</span><span class="status idle">○</span>
+            <span class="txt">修复登录页 Bug</span>
+            <span class="time">00:00:00</span>
+          </div>
+        </div>
+        <div class="card">
+          <div class="accent"></div>
+          <div class="row">
+            <span class="seq">③</span><span class="star off">★</span><span class="status idle">○</span>
+            <span class="txt dim">准备周会材料 <span class="hidden-mark">◌</span></span>
+            <span class="time" style="color:var(--text_ter)">00:00:00</span>
+          </div>
+        </div>
+        <div class="card">
+          <div class="accent green"></div>
+          <div class="row">
+            <span class="seq">④</span><span class="star">★</span><span class="status done">✓</span>
+            <span class="txt done">完成产品文档</span>
+            <span class="tag done">已完成</span>
+            <span class="time done">00:05:00</span>
+          </div>
+        </div>
+      </div>
+      <div class="footer-pad"></div>
+    </div>
+  </div>
+
+  <div class="legend">
+    <span><b>配色</b>：沿用飞书色板，主色 #3370FF</span>
+    <span><b>圆角</b>：卡片/输入 10px，按钮 8px，药丸 999px</span>
+    <span><b>选中操作</b>：纯图标 + 悬停提示，永不截断</span>
+    <span><b>卡片</b>：左色条（蓝=进行 / 绿=完成 / 橙=重点）+ 柔影</span>
+  </div>
+</body>
+</html>
