@@ -1,22 +1,23 @@
 import tkinter as tk
+import customtkinter as ctk
 from datetime import datetime
-from .constants import C, FONT, WEEKDAYS
+from .constants import C, FONT, WEEKDAYS, RADIUS
 
 
 def flat_btn(parent, text, cmd, bg, hover_bg,
              font_size=10, pady=6, padx=18, fg="#FFFFFF"):
-    """创建飞书风格的扁平按钮 (Frame + Label 组合)"""
-    f = tk.Frame(parent, bg=bg, cursor="hand2", highlightthickness=0, bd=0)
-    lbl = tk.Label(f, text=text, bg=bg, fg=fg, font=(FONT, font_size),
-                   cursor="hand2", bd=0, padx=padx, pady=pady)
-    lbl.pack()
-    for w in (f, lbl):
-        w.bind("<Button-1>", lambda e: cmd())
-        w.bind("<Enter>", lambda e, ff=f, ll=lbl, hc=hover_bg, hf=fg:
-               (ff.configure(bg=hc), ll.configure(bg=hc, fg=hf)))
-        w.bind("<Leave>", lambda e, ff=f, ll=lbl, bc=bg, bf=fg:
-               (ff.configure(bg=bc), ll.configure(bg=bc, fg=bf)))
-    return f
+    """飞书风扁平按钮 —— 基于 CTkButton（圆角 + hover 平滑过渡）。
+    保留原签名，padx 由 CTkButton 内边距自动吸收。"""
+    height = font_size + 2 * pady + 6  # 近似原 pady 撑高
+    btn = ctk.CTkButton(
+        parent, text=text, command=cmd,
+        fg_color=bg, hover_color=hover_bg, text_color=fg,
+        corner_radius=RADIUS["button"],
+        font=(FONT, font_size),
+        border_width=0,
+        height=height,
+    )
+    return btn
 
 
 def get_today_str():
