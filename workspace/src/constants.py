@@ -22,4 +22,12 @@ C = {
 }
 
 FONT = "Microsoft YaHei"
+
+# 圆角（customtkinter corner_radius 用）—— spec §5.2
+RADIUS = {
+    "card": 10,
+    "button": 8,
+    "pill": 999,
+}
+
 WEEKDAYS = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
