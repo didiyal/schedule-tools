@@ -1,7 +1,7 @@
 import tkinter as tk
 import customtkinter as ctk
 from datetime import datetime, timedelta
-from .constants import C, FONT, RADIUS
+from .constants import C, FONT
 from .utils import flat_btn, fmt_date_cn
 
 
@@ -30,7 +30,7 @@ class DatePickerDialog:
 
         self.date_lbl = ctk.CTkLabel(nav, text=fmt_date_cn(self.date),
                                      fg_color="transparent", text_color=C["text"],
-                                     font=(FONT, 13, "bold"), width=20)
+                                     font=(FONT, 13, "bold"))
         self.date_lbl.pack(side=tk.LEFT)
 
         self.next_btn = ctk.CTkLabel(nav, text="›", fg_color="transparent",
