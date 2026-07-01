@@ -100,17 +100,17 @@ class MainApp:
     # ── UI 构建 ────────────────────────────────────────
     def _build_ui(self):
         # ── 顶栏 ──
-        hdr = ctk.CTkFrame(self.root, fg_color=C["surface"], height=48, corner_radius=0)
+        hdr = ctk.CTkFrame(self.root, fg_color=C["surface"], height=40, corner_radius=0)
         hdr.pack(fill=tk.X)
         hdr.pack_propagate(False)
 
         ctk.CTkLabel(hdr, text="待办计时器", fg_color=C["surface"],
                      text_color=C["text"], font=(FONT, 15, "bold")).pack(
-            side=tk.LEFT, padx=20, pady=10)
+            side=tk.LEFT, padx=20, pady=7)
 
         self.stat_lbl = ctk.CTkLabel(hdr, text="", fg_color=C["surface"],
                                      text_color=C["text_sec"], font=(FONT, 10))
-        self.stat_lbl.pack(side=tk.RIGHT, padx=20, pady=10)
+        self.stat_lbl.pack(side=tk.RIGHT, padx=20, pady=7)
 
         ctk.CTkFrame(self.root, fg_color=C["border"], height=1).pack(fill=tk.X)
 
@@ -119,7 +119,7 @@ class MainApp:
         date_bar.pack(fill=tk.X)
 
         date_inner = ctk.CTkFrame(date_bar, fg_color=C["surface"])
-        date_inner.pack(fill=tk.X, padx=16, pady=(10, 4))
+        date_inner.pack(fill=tk.X, padx=16, pady=(6, 2))
 
         self.btn_prev = ctk.CTkLabel(date_inner, text="‹", fg_color=C["surface"],
                                      text_color=C["blue"],
@@ -150,7 +150,7 @@ class MainApp:
         filter_bar = ctk.CTkFrame(self.root, fg_color=C["surface"])
         filter_bar.pack(fill=tk.X)
         filter_inner = ctk.CTkFrame(filter_bar, fg_color=C["surface"])
-        filter_inner.pack(fill=tk.X, padx=16, pady=(0, 8))
+        filter_inner.pack(fill=tk.X, padx=16, pady=(0, 3))
 
         self._seg_map = {"未完成": "active", "已完成": "completed", "全部": "all"}
         self.filter_seg = ctk.CTkSegmentedButton(
@@ -170,10 +170,10 @@ class MainApp:
 
         # ── 输入卡片 ──
         card_inp = ctk.CTkFrame(self.root, fg_color=C["surface"])
-        card_inp.pack(fill=tk.X, padx=20, pady=(12, 8))
+        card_inp.pack(fill=tk.X, padx=20, pady=(6, 4))
 
         card_inp_inner = ctk.CTkFrame(card_inp, fg_color=C["surface"])
-        card_inp_inner.pack(fill=tk.X, padx=12, pady=12)
+        card_inp_inner.pack(fill=tk.X, padx=12, pady=8)
 
         self.entry = ctk.CTkEntry(card_inp_inner, fg_color=C["bg"], text_color=C["text"],
                                   border_color=C["border"], border_width=1,
@@ -220,10 +220,10 @@ class MainApp:
 
         # ── 列表卡片 ──
         card_list = ctk.CTkFrame(self.root, fg_color=C["surface"])
-        card_list.pack(fill=tk.BOTH, expand=True, padx=20, pady=(2, 8))
+        card_list.pack(fill=tk.BOTH, expand=True, padx=20, pady=(0, 4))
 
         lh = ctk.CTkFrame(card_list, fg_color=C["surface"])
-        lh.pack(fill=tk.X, padx=16, pady=(12, 4))
+        lh.pack(fill=tk.X, padx=16, pady=(8, 2))
 
         self.list_title_lbl = ctk.CTkLabel(lh, text="", fg_color=C["surface"], text_color=C["text"],
                                            font=(FONT, 12, "bold"))
@@ -242,17 +242,18 @@ class MainApp:
         ctk.CTkFrame(card_list, fg_color=C["border"], height=1).pack(fill=tk.X, padx=16)
 
         # ── 可滚动卡片区 ──
-        lc = ctk.CTkFrame(card_list, fg_color=C["surface"])
-        lc.pack(fill=tk.BOTH, expand=True, padx=4, pady=(4, 12))
+        # 列表区用浅灰底（C["bg"]），白色卡片在其上 pack 留间隙 → 卡片间有清晰分界
+        lc = ctk.CTkFrame(card_list, fg_color=C["bg"])
+        lc.pack(fill=tk.BOTH, expand=True, padx=4, pady=(4, 8))
 
-        self.canvas = tk.Canvas(lc, bg=C["surface"], highlightthickness=0, bd=0)
+        self.canvas = tk.Canvas(lc, bg=C["bg"], highlightthickness=0, bd=0)
         self.scrollbar = tk.Scrollbar(lc, orient=tk.VERTICAL,
                                       command=self.canvas.yview,
                                       bg=C["bg"], troughcolor=C["bg"],
                                       activebackground=C["blue"])
         self.canvas.configure(yscrollcommand=self.scrollbar.set)
 
-        self.card_frame = tk.Frame(self.canvas, bg=C["surface"])
+        self.card_frame = tk.Frame(self.canvas, bg=C["bg"])
         self.card_frame_id = self.canvas.create_window((0, 0), window=self.card_frame,
                                                        anchor="nw")
 
@@ -542,7 +543,7 @@ class MainApp:
                 seq += 1
                 day_total += w.elapsed
                 card = self._obtain_card(w, seq, show_date=False)
-                card.pack(fill=tk.X)
+                card.pack(fill=tk.X, pady=(0, 4))
                 self._cards.append(card)
 
             # ── 跨日未完成 ──
@@ -571,7 +572,7 @@ class MainApp:
                     for w in group_items:
                         seq += 1
                         card = self._obtain_card(w, seq, show_date=(len(groups) == 1))
-                        card.pack(fill=tk.X)
+                        card.pack(fill=tk.X, pady=(0, 4))
                         self._cards.append(card)
 
             # 统一空提示
@@ -608,7 +609,7 @@ class MainApp:
                     for w in group_items:
                         seq += 1
                         card = self._obtain_card(w, seq, show_date=False)
-                        card.pack(fill=tk.X)
+                        card.pack(fill=tk.X, pady=(0, 4))
                         self._cards.append(card)
             else:
                 hint = EmptyHint(self.card_frame, "暂无已完成待办")
@@ -646,7 +647,7 @@ class MainApp:
                         if not w.completed:
                             day_total += w.elapsed
                         card = self._obtain_card(w, seq, show_date=False)
-                        card.pack(fill=tk.X)
+                        card.pack(fill=tk.X, pady=(0, 4))
                         self._cards.append(card)
             else:
                 hint = EmptyHint(self.card_frame, "暂无待办")

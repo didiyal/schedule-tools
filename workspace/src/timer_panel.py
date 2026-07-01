@@ -481,11 +481,12 @@ class TimerRow(ctk.CTkFrame):
     # ── 迷你按钮 ──
     @staticmethod
     def _mini_btn(parent, text, cmd, fg=C["text_sec"], hover_bg=C["blue_light"]):
+        # 浅灰底按钮：白卡上清晰可见可点击（原 surface 白底白卡不可见）
         btn = ctk.CTkButton(parent, text=text, command=cmd,
-                            width=28, height=24,
-                            fg_color=C["surface"], hover_color=hover_bg,
+                            width=30, height=26,
+                            fg_color=C["bg"], hover_color=hover_bg,
                             text_color=fg, corner_radius=RADIUS["button"],
-                            font=(FONT, 10), border_width=0)
+                            font=(FONT, 11), border_width=0)
         return btn
 
     @staticmethod

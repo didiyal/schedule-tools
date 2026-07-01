@@ -282,7 +282,7 @@ class SectionHeader(ctk.CTkFrame):
     """列表中的区块标题 — 不可点击"""
 
     def __init__(self, parent, text, compact=False, **kw):
-        super().__init__(parent, fg_color=C["surface"], corner_radius=0, **kw)
+        super().__init__(parent, fg_color="transparent", corner_radius=0, **kw)
         if compact:
             lbl = ctk.CTkLabel(self, text=text, fg_color="transparent",
                                text_color=C["text_ter"], font=(FONT, 9), anchor="w")
@@ -300,7 +300,7 @@ class EmptyHint(ctk.CTkFrame):
     """空列表提示"""
 
     def __init__(self, parent, text="暂无待办", **kw):
-        super().__init__(parent, fg_color=C["surface"], corner_radius=0, **kw)
+        super().__init__(parent, fg_color="transparent", corner_radius=0, **kw)
         ctk.CTkFrame(self, fg_color="transparent", height=12).pack(fill=tk.X)
         lbl = ctk.CTkLabel(self, text=text, fg_color="transparent",
                            text_color=C["text_ter"], font=(FONT, 10))
