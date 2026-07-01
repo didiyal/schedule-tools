@@ -1,4 +1,5 @@
 import tkinter as tk
+import customtkinter as ctk
 from datetime import datetime, timedelta
 from .constants import C, FONT
 from .utils import flat_btn, fmt_date_cn
@@ -11,33 +12,34 @@ class DatePickerDialog:
         self.callback = callback
         self.date = current_date
 
-        self.dlg = tk.Toplevel(parent)
+        self.dlg = ctk.CTkToplevel(parent, fg_color=C["surface"])
         self.dlg.title("选择日期")
         self.dlg.geometry("340x130")
-        self.dlg.configure(bg=C["surface"])
         self.dlg.resizable(False, False)
         self.dlg.transient(parent)
         self.dlg.grab_set()
 
-        nav = tk.Frame(self.dlg, bg=C["surface"])
+        nav = ctk.CTkFrame(self.dlg, fg_color="transparent")
         nav.pack(pady=(16, 10))
 
-        self.prev_btn = tk.Label(nav, text="‹", bg=C["surface"], fg=C["blue"],
-                                 font=(FONT, 22, "bold"), cursor="hand2")
+        self.prev_btn = ctk.CTkLabel(nav, text="‹", fg_color="transparent",
+                                     text_color=C["blue"],
+                                     font=(FONT, 22, "bold"), cursor="hand2")
         self.prev_btn.pack(side=tk.LEFT, padx=(0, 14))
         self.prev_btn.bind("<Button-1>", lambda e: self._shift(-1))
 
-        self.date_lbl = tk.Label(nav, text=fmt_date_cn(self.date),
-                                 bg=C["surface"], fg=C["text"],
-                                 font=(FONT, 13, "bold"), width=20)
+        self.date_lbl = ctk.CTkLabel(nav, text=fmt_date_cn(self.date),
+                                     fg_color="transparent", text_color=C["text"],
+                                     font=(FONT, 13, "bold"))
         self.date_lbl.pack(side=tk.LEFT)
 
-        self.next_btn = tk.Label(nav, text="›", bg=C["surface"], fg=C["blue"],
-                                 font=(FONT, 22, "bold"), cursor="hand2")
+        self.next_btn = ctk.CTkLabel(nav, text="›", fg_color="transparent",
+                                     text_color=C["blue"],
+                                     font=(FONT, 22, "bold"), cursor="hand2")
         self.next_btn.pack(side=tk.LEFT, padx=(14, 0))
         self.next_btn.bind("<Button-1>", lambda e: self._shift(1))
 
-        btns = tk.Frame(self.dlg, bg=C["surface"])
+        btns = ctk.CTkFrame(self.dlg, fg_color="transparent")
         btns.pack(pady=(4, 0))
         flat_btn(btns, "确定", self._confirm, C["blue"], C["blue_hover"],
                  font_size=10, pady=5, padx=24).pack(side=tk.LEFT, padx=6)

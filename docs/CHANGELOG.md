@@ -1,6 +1,25 @@
 # 更新日志
 
-> 每个版本的详细变更见 [product/v1.0/changelog.md](product/v1.0/changelog.md)。
+> 每个版本的详细变更见对应 `product/<版本>/changelog.md`。
+
+## v1.1 — 2026-07-01
+
+### 新增
+
+- UI 现代化：迁移 customtkinter，飞书风格圆角卡片视觉系统（配色 + `RADIUS` token）。
+- Inno Setup 安装器：单用户、可选安装路径、固定 AppId 覆盖升级、卸载可选删本地数据、简中向导、应用图标。
+- 顶部版本号显示（`v1.1.0`）。
+
+### 优化
+
+- 计时悬浮窗按钮重设计：实心彩色（▶绿 ⏸橙 ↺灰 ✕红 + 白图标），高对比可见。
+- 三态切换预加载复用卡片，不再重建控件。
+- 顶栏紧凑、卡片间分界、窗口/卡片尺寸与字号统一调整。
+
+### 技术
+
+- 依赖 +customtkinter；DPI 单一缩放源；版本号单源 `APP_VERSION`（与 `installer.iss` / 安装包名同源）。
+- 详细变更见 [product/v1.1/changelog.md](product/v1.1/changelog.md)。
 
 ## v1.0 — 2026-06-25
 
