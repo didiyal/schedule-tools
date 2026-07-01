@@ -14,9 +14,9 @@ def _circled(n):
     return f"({n})"
 
 
-# CTkLabel 默认渲染高 35px（与字号无关），远大于文字实际高度（~15px），
-# 显式压到 22px 让卡片行更紧凑；文字仍宽松容纳、不裁切。
-_CARD_LABEL_H = 22
+# CTkLabel 默认渲染高 35px（与字号无关），显式指定以控制行高。
+# 字号整体 +2 后文字 ~17-18px，行高 28 宽松容纳、不裁切。
+_CARD_LABEL_H = 28
 
 
 class TodoCard(ctk.CTkFrame):
@@ -38,7 +38,7 @@ class TodoCard(ctk.CTkFrame):
         # ── 内容区 ──
         content = ctk.CTkFrame(self, fg_color="transparent")
         content.pack(side=tk.LEFT, fill=tk.BOTH, expand=True,
-                     padx=(12, 10), pady=(2, 2))
+                     padx=(12, 10), pady=(4, 4))
 
         # 左侧图标组
         icons = ctk.CTkFrame(content, fg_color="transparent")
@@ -47,7 +47,7 @@ class TodoCard(ctk.CTkFrame):
         # ① 序号
         seq_text = _circled(seq) if seq > 0 else ""
         self.seq_lbl = ctk.CTkLabel(icons, text=seq_text, fg_color="transparent",
-                                    text_color=C["text_sec"], font=(FONT, 10),
+                                    text_color=C["text_sec"], font=(FONT, 12),
                                     height=_CARD_LABEL_H)
         self.seq_lbl.pack(side=tk.LEFT)
 
@@ -55,14 +55,14 @@ class TodoCard(ctk.CTkFrame):
         star_text = "★" if w.starred else ""
         star_fg = C["orange"] if w.starred else C["text_ter"]
         self.star_lbl = ctk.CTkLabel(icons, text=star_text, fg_color="transparent",
-                                     text_color=star_fg, font=(FONT, 10),
+                                     text_color=star_fg, font=(FONT, 12),
                                      height=_CARD_LABEL_H)
         self.star_lbl.pack(side=tk.LEFT)
 
         # ●○✓ 状态图标
         status_text, status_fg = self._status_icon(w)
         self.status_lbl = ctk.CTkLabel(icons, text=status_text, fg_color="transparent",
-                                       text_color=status_fg, font=(FONT, 12),
+                                       text_color=status_fg, font=(FONT, 14),
                                        height=_CARD_LABEL_H)
         self.status_lbl.pack(side=tk.LEFT, padx=(2, 0))
 
@@ -73,7 +73,7 @@ class TodoCard(ctk.CTkFrame):
         is_hidden = not w.is_visible()
         text_fg = C["text_ter"] if is_hidden else C["text"]
         self.text_lbl = ctk.CTkLabel(content, text=w.text, fg_color="transparent",
-                                     text_color=text_fg, font=(FONT, 11), anchor="w",
+                                     text_color=text_fg, font=(FONT, 13), anchor="w",
                                      height=_CARD_LABEL_H)
         self.text_lbl.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
@@ -87,7 +87,7 @@ class TodoCard(ctk.CTkFrame):
         # 隐藏指示器 ◌
         if is_hidden:
             self.hidden_lbl = ctk.CTkLabel(right, text="◌", fg_color="transparent",
-                                           text_color=C["text_ter"], font=(FONT, 10),
+                                           text_color=C["text_ter"], font=(FONT, 12),
                                            height=_CARD_LABEL_H)
             self.hidden_lbl.pack(side=tk.RIGHT, padx=(4, 0))
 
@@ -97,28 +97,28 @@ class TodoCard(ctk.CTkFrame):
             if w_date:
                 self.date_lbl = ctk.CTkLabel(right, text=f"[{fmt_date_short(w_date)}]",
                                              fg_color="transparent", text_color=C["text_ter"],
-                                             font=(FONT, 9), height=_CARD_LABEL_H)
+                                             font=(FONT, 11), height=_CARD_LABEL_H)
                 self.date_lbl.pack(side=tk.RIGHT, padx=(0, 6))
 
         # 时间
         time_fg = C["strikethrough"] if w.completed else (
             C["text_ter"] if is_hidden else C["text"])
         self.time_lbl = ctk.CTkLabel(right, text=fmt_time(w.elapsed), fg_color="transparent",
-                                     text_color=time_fg, font=("Consolas", 11), anchor="e",
+                                     text_color=time_fg, font=("Consolas", 13), anchor="e",
                                      height=_CARD_LABEL_H)
         self.time_lbl.pack(side=tk.RIGHT, padx=(0, 4))
 
         # 已完成后缀
         if w.completed:
             self.done_lbl = ctk.CTkLabel(right, text="[已完成]", fg_color="transparent",
-                                         text_color=C["green"], font=(FONT, 9),
+                                         text_color=C["green"], font=(FONT, 11),
                                          height=_CARD_LABEL_H)
             self.done_lbl.pack(side=tk.RIGHT, padx=(0, 4))
 
         # 计时提醒标记 ⏰ + 倒计时（仅当设置了目标时长）
         if w.target_seconds:
             self.rem_lbl = ctk.CTkLabel(right, text="⏰", fg_color="transparent",
-                                        text_color=C["orange"], font=(FONT, 9),
+                                        text_color=C["orange"], font=(FONT, 11),
                                         height=_CARD_LABEL_H)
             self.rem_lbl.pack(side=tk.RIGHT, padx=(0, 4))
 

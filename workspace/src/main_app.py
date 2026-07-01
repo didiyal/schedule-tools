@@ -47,7 +47,7 @@ class MainApp:
         self.root.title("待办计时器")
         ctk.set_appearance_mode("light")
         ctk.set_default_color_theme("blue")  # 仅取结构，颜色由各控件 fg_color 覆盖
-        self.root.geometry("720x780")
+        self.root.geometry("576x624")
         self.root.minsize(560, 620)
         self.root.configure(fg_color=C["bg"])
 
@@ -157,9 +157,10 @@ class MainApp:
             values=["未完成", "已完成", "全部"],
             command=self._on_seg_filter,
             corner_radius=RADIUS["pill"],
-            selected_color=C["blue"], selected_hover_color=C["blue_hover"],
-            unselected_color=C["bg"], unselected_hover_color=C["border"],
-            text_color="#FFFFFF", font=(FONT, 11),
+            fg_color=C["bg"],
+            selected_color=C["blue_light"], selected_hover_color=C["border"],
+            unselected_color=C["surface"], unselected_hover_color=C["bg"],
+            text_color=C["text"], font=(FONT, 11),
         )
         self.filter_seg.set("未完成")
         self.filter_seg.pack(side=tk.LEFT)
