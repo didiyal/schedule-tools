@@ -490,10 +490,10 @@ class TimerRow(ctk.CTkFrame):
         # 实心彩色按钮：白卡上高对比可见、白色图标、颜色区分功能（▶绿 ⏸橙 ↺灰 ✕红）。
         # 早先的 surface/bg 浅底在白卡上几乎隐形 → 改实心。
         btn = ctk.CTkButton(parent, text=text, command=cmd,
-                            width=36, height=30,
+                            width=28, height=24,
                             fg_color=color, hover_color=hover,
                             text_color="#FFFFFF", corner_radius=RADIUS["button"],
-                            font=(FONT, 13), border_width=0)
+                            font=(FONT, 11), border_width=0)
         btn._on_bg = color  # 启用态底色；_btn_state 据此在 启用/禁用 间切换
         return btn
 
