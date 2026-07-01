@@ -217,30 +217,30 @@ class MainApp:
         _icon_btn(row_icon, "🗑", self._delete_selected, "删除", danger=True).pack(side=tk.LEFT, padx=2)
 
         # ── 列表卡片 ──
-        card_list = tk.Frame(self.root, bg=C["surface"])
+        card_list = ctk.CTkFrame(self.root, fg_color=C["surface"])
         card_list.pack(fill=tk.BOTH, expand=True, padx=20, pady=(2, 8))
 
-        lh = tk.Frame(card_list, bg=C["surface"])
+        lh = ctk.CTkFrame(card_list, fg_color=C["surface"])
         lh.pack(fill=tk.X, padx=16, pady=(12, 4))
 
-        self.list_title_lbl = tk.Label(lh, text="", bg=C["surface"], fg=C["text"],
-                                       font=(FONT, 12, "bold"))
+        self.list_title_lbl = ctk.CTkLabel(lh, text="", fg_color=C["surface"], text_color=C["text"],
+                                           font=(FONT, 12, "bold"))
         self.list_title_lbl.pack(side=tk.LEFT)
 
         # 搜索框
         self.search_var = tk.StringVar()
         self.search_var.trace_add("write", lambda *a: self._on_search_change())
-        self.search_entry = tk.Entry(lh, textvariable=self.search_var,
-                                      bg=C["bg"], fg=C["text"],
-                                      insertbackground=C["blue"],
-                                      relief=tk.SOLID, font=(FONT, 9), bd=1,
-                                      highlightthickness=0, width=18)
-        self.search_entry.pack(side=tk.RIGHT, ipady=2)
+        self.search_entry = ctk.CTkEntry(lh, textvariable=self.search_var,
+                                         fg_color=C["bg"], text_color=C["text"],
+                                         border_color=C["border"], border_width=1,
+                                         corner_radius=RADIUS["button"],
+                                         font=(FONT, 10), width=160)
+        self.search_entry.pack(side=tk.RIGHT)
 
-        tk.Frame(card_list, bg=C["border"], height=1).pack(fill=tk.X, padx=16)
+        ctk.CTkFrame(card_list, fg_color=C["border"], height=1).pack(fill=tk.X, padx=16)
 
         # ── 可滚动卡片区 ──
-        lc = tk.Frame(card_list, bg=C["surface"])
+        lc = ctk.CTkFrame(card_list, fg_color=C["surface"])
         lc.pack(fill=tk.BOTH, expand=True, padx=4, pady=(4, 12))
 
         self.canvas = tk.Canvas(lc, bg=C["surface"], highlightthickness=0, bd=0)
