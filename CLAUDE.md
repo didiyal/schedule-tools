@@ -4,7 +4,7 @@
 
 ```bash
 cd tools/workspace && python main.py                    # 开发运行
-pyinstaller --onefile --noconsole --name "待办计时器" --collect-all pystray --hidden-import six.moves --distpath "../" --workpath "../build_tmp" main.py
+pyinstaller --onefile --noconsole --name "待办计时器" --collect-all pystray --collect-all customtkinter --hidden-import six.moves --distpath "../" --workpath "../build_tmp" main.py
 rm -rf ../build_tmp 待办计时器.spec                      # 打包 → ../待办计时器.exe
 ```
 
