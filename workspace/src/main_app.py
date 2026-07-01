@@ -1008,11 +1008,12 @@ class MainApp:
         except Exception:
             pass
         g.configure(bg=C["blue"], highlightthickness=0, bd=0)
-        body = tk.Frame(g, bg=C["surface"])
-        body.pack(fill=tk.BOTH, expand=True, padx=2)  # 2px 蓝边
+        body = ctk.CTkFrame(g, fg_color=C["surface"], corner_radius=RADIUS["card"])
+        body.pack(fill=tk.BOTH, expand=True, padx=2)  # 2px 蓝边（圆角卡片浮于蓝边之上）
         text = self.todos[tid].text
-        lbl = tk.Label(body, text=f"✥ {text}", bg=C["surface"], fg=C["text"],
-                       font=(FONT, 10), anchor="w", padx=10, pady=6)
+        lbl = ctk.CTkLabel(body, text=f"✥ {text}", fg_color="transparent",
+                           text_color=C["text"], font=(FONT, 10),
+                           anchor="w", padx=10, pady=6)
         lbl.pack()
         # 立即定位到光标处，避免虚影先在 (0,0) 闪现
         try:
