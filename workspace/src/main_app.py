@@ -31,7 +31,7 @@ def _icon_btn(parent, text, cmd, tip, danger=False):
     用 min_len=0 让短文字提示（"删除"/"标重点"…）也能正常显示。
     """
     btn = ctk.CTkButton(
-        parent, text=text, command=cmd, width=32, height=32,
+        parent, text=text, command=cmd, width=28, height=26,
         fg_color="transparent",
         hover_color=(C["red_light"] if danger else C["blue_light"]),
         text_color=(C["red"] if danger else C["text_sec"]),

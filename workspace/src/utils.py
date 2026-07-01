@@ -7,7 +7,7 @@ def flat_btn(parent, text, cmd, bg, hover_bg,
              font_size=10, pady=6, padx=18, fg="#FFFFFF"):
     """飞书风扁平按钮 —— 基于 CTkButton（圆角 + hover 平滑过渡）。
     保留原签名，padx 由 CTkButton 内边距自动吸收。"""
-    height = font_size + 2 * pady + 6  # 近似原 pady 撑高
+    height = font_size + 2 * pady  # 紧凑：CTkButton 自带内边距，不再额外撑高
     btn = ctk.CTkButton(
         parent, text=text, command=cmd,
         fg_color=bg, hover_color=hover_bg, text_color=fg,

@@ -33,7 +33,7 @@ class TodoCard(ctk.CTkFrame):
         # ── 内容区 ──
         content = ctk.CTkFrame(self, fg_color="transparent")
         content.pack(side=tk.LEFT, fill=tk.BOTH, expand=True,
-                     padx=(12, 10), pady=(8, 8))
+                     padx=(12, 10), pady=(5, 5))
 
         # 左侧图标组
         icons = ctk.CTkFrame(content, fg_color="transparent")
