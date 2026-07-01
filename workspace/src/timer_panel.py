@@ -456,7 +456,10 @@ class TimerRow(ctk.CTkFrame):
                                      font=("Consolas", 18, "bold"))
         self.time_lbl.pack(side=tk.LEFT)
 
-        ctk.CTkFrame(mid_row, fg_color="transparent", height=0).pack(side=tk.LEFT, fill=tk.X, expand=True)
+        # 弹簧：挤开时间(左)与按钮(右)。width=0 必加 —— CTkFrame 默认请求宽 200，
+        # 不加会吃掉按钮空间导致 4 个按钮溢出重叠（只露出最左的移除按钮）。
+        ctk.CTkFrame(mid_row, fg_color="transparent", width=0, height=0).pack(
+            side=tk.LEFT, fill=tk.X, expand=True)
 
         self.btn_start = self._mini_btn(mid_row, "▶", self._on_start,
                                         C["green"], C["green_hover"])
@@ -467,7 +470,7 @@ class TimerRow(ctk.CTkFrame):
         self.btn_pause.pack(side=tk.RIGHT, padx=2)
 
         self.btn_reset = self._mini_btn(mid_row, "↺", self._on_reset,
-                                        C["text_ter"], C["text_sec"])
+                                        C["blue"], C["blue_hover"])
         self.btn_reset.pack(side=tk.RIGHT, padx=2)
 
         self.btn_remove = self._mini_btn(mid_row, "✕", self._on_remove,
@@ -561,10 +564,11 @@ class TimerRow(ctk.CTkFrame):
 
     @staticmethod
     def _btn_state(btn, enabled):
-        # 启用=功能底色+白图标；禁用=淡化灰底+灰图标（_on_bg 由 _mini_btn 写入）
+        # 启用=功能底色+白图标；禁用=中灰底+白图标。
+        # 早先禁用用 border(#E5E6EB) 太浅，白卡上隐形 → 已完成项只剩红✕可见。
         on_bg = getattr(btn, "_on_bg", C["text_ter"])
-        btn.configure(fg_color=on_bg if enabled else C["border"],
-                      text_color="#FFFFFF" if enabled else C["text_ter"])
+        btn.configure(fg_color=on_bg if enabled else C["text_ter"],
+                      text_color="#FFFFFF")
 
     # ── 右键菜单 ──
     def _build_menu(self):
