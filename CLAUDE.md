@@ -57,3 +57,12 @@ Python 3.10+ 标准库 + pystray/pillow（系统托盘）。
 - Canvas 内嵌 Frame 的 `<Configure>` 事件需手动更新 scrollregion
 - Observer 回调用列表存引用，TimerPanel 必须用 `remove_callback()` 精确移除自己的那条，否则内存泄漏
 - `installer.iss` 必须存 UTF-8 BOM（含中文 AppName，否则 Inno 按 GBK 误读成乱码）；`ChineseSimplified.isl` 同样需 UTF-8 BOM（否则中文系统按 GBK 误读向导文字）；`build_installer.bat` 为 GBK+CRLF（中文 Windows cmd 才能正确解析中文 EXE 名）
+
+## 文档同步
+
+代码或行为有变更时，必须同步更新对应文档，避免文档与代码漂移：
+
+- **版本号**：改 `constants.APP_VERSION` → 同步 `installer/installer.iss` 的 `MyAppVersion`、`build_installer.bat` 输出名、`docs/CHANGELOG.md`、以及 `docs/product/current.md` 与 `docs/development/current.md` 的「当前生效版本」。
+- **用户可见变更**（新功能 / 行为变化 / UI 调整）→ 写进 `docs/CHANGELOG.md` 摘要，详细变更进 `docs/product/<版本>/changelog.md`。
+- **架构或约束变化**（数据流、模块职责、构建/打包流程、新增易错点）→ 更新本文件对应段落。
+- **路线图**：已完成的功能从 `docs/ROADMAP.md`「候选」挪到「已完成」。
