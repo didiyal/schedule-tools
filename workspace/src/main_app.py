@@ -14,22 +14,42 @@ else:
 SAVE_FILE = os.path.join(_BASE, "data", "todos.json")
 ARCHIVE_FILE = os.path.join(_BASE, "data", "archive.json")
 
-from .constants import C, FONT
+import customtkinter as ctk
+from .constants import C, FONT, RADIUS, APP_VERSION
 from .utils import flat_btn, get_today_str, fmt_date_cn, fmt_time
 from .todo_widget import TodoWidget
 from .date_picker import DatePickerDialog
 from .todo_card import TodoCard, SectionHeader, EmptyHint
 from .timer_panel import TimerPanel
 from .tray import TrayController, autostart_enabled, set_autostart
+from .tooltip import ToolTip
+
+
+def _icon_btn(parent, text, cmd, tip, danger=False):
+    """纯图标圆角按钮 + tooltip。danger=True 时 hover 变红。
+
+    用 min_len=0 让短文字提示（"删除"/"标重点"…）也能正常显示。
+    """
+    btn = ctk.CTkButton(
+        parent, text=text, command=cmd, width=28, height=26,
+        fg_color="transparent",
+        hover_color=(C["red_light"] if danger else C["blue_light"]),
+        text_color=(C["red"] if danger else C["text_sec"]),
+        corner_radius=RADIUS["button"], font=(FONT, 14), border_width=0,
+    )
+    ToolTip(btn, lambda: tip, min_len=0)
+    return btn
 
 
 class MainApp:
     def __init__(self):
-        self.root = tk.Tk()
+        self.root = ctk.CTk()
         self.root.title("待办计时器")
-        self.root.geometry("560x660")
-        self.root.configure(bg=C["bg"])
-        self.root.minsize(480, 480)
+        ctk.set_appearance_mode("light")
+        ctk.set_default_color_theme("blue")  # 仅取结构，颜色由各控件 fg_color 覆盖
+        self.root.geometry("576x624")
+        self.root.minsize(560, 620)
+        self.root.configure(fg_color=C["bg"])
 
         self.todos: dict[str, TodoWidget] = {}
         self._next_id = 0
@@ -37,6 +57,7 @@ class MainApp:
         self.current_date = get_today_str()
         self.filter_state = "active"
         self._cards: list = []  # TodoCard | SectionHeader | EmptyHint
+        self._card_cache: dict = {}  # todo_id -> TodoCard（跨视图复用，避免重建）
         self._selected_tid: str | None = None
         self._search_term = ""
         self._undo_action = None
@@ -79,37 +100,46 @@ class MainApp:
     # ── UI 构建 ────────────────────────────────────────
     def _build_ui(self):
         # ── 顶栏 ──
-        hdr = tk.Frame(self.root, bg=C["surface"], height=48)
+        hdr = ctk.CTkFrame(self.root, fg_color=C["surface"], height=40, corner_radius=0)
         hdr.pack(fill=tk.X)
         hdr.pack_propagate(False)
 
-        tk.Label(hdr, text="待办计时器", bg=C["surface"], fg=C["text"],
-                 font=(FONT, 15, "bold")).pack(side=tk.LEFT, padx=20, pady=10)
+        ctk.CTkLabel(hdr, text="待办计时器", fg_color=C["surface"],
+                     text_color=C["text"], font=(FONT, 15, "bold")).pack(
+            side=tk.LEFT, padx=20, pady=7)
 
-        self.stat_lbl = tk.Label(hdr, text="", bg=C["surface"], fg=C["text_sec"],
-                                 font=(FONT, 10))
-        self.stat_lbl.pack(side=tk.RIGHT, padx=20, pady=10)
+        # 版本号（紧贴标题右侧，小灰字）—— 安装器升级检测与这里同源
+        ctk.CTkLabel(hdr, text=f"v{APP_VERSION}", fg_color=C["surface"],
+                     text_color=C["text_ter"], font=(FONT, 10)).pack(
+            side=tk.LEFT, padx=(0, 20), pady=7)
 
-        tk.Frame(self.root, bg=C["border"], height=1).pack(fill=tk.X)
+        self.stat_lbl = ctk.CTkLabel(hdr, text="", fg_color=C["surface"],
+                                     text_color=C["text_sec"], font=(FONT, 10))
+        self.stat_lbl.pack(side=tk.RIGHT, padx=20, pady=7)
+
+        ctk.CTkFrame(self.root, fg_color=C["border"], height=1).pack(fill=tk.X)
 
         # ── 日期导航栏 ──
-        date_bar = tk.Frame(self.root, bg=C["surface"])
+        date_bar = ctk.CTkFrame(self.root, fg_color=C["surface"])
         date_bar.pack(fill=tk.X)
 
-        date_inner = tk.Frame(date_bar, bg=C["surface"])
-        date_inner.pack(fill=tk.X, padx=16, pady=(10, 4))
+        date_inner = ctk.CTkFrame(date_bar, fg_color=C["surface"])
+        date_inner.pack(fill=tk.X, padx=16, pady=(6, 2))
 
-        self.btn_prev = tk.Label(date_inner, text="‹", bg=C["surface"], fg=C["blue"],
-                                 font=(FONT, 20, "bold"), cursor="hand2")
+        self.btn_prev = ctk.CTkLabel(date_inner, text="‹", fg_color=C["surface"],
+                                     text_color=C["blue"],
+                                     font=(FONT, 20, "bold"), cursor="hand2")
         self.btn_prev.pack(side=tk.LEFT, padx=(0, 8))
         self.btn_prev.bind("<Button-1>", lambda e: self._shift_date(-1))
 
-        self.date_lbl = tk.Label(date_inner, text="", bg=C["surface"], fg=C["text"],
-                                 font=(FONT, 14, "bold"))
+        self.date_lbl = ctk.CTkLabel(date_inner, text="", fg_color=C["surface"],
+                                     text_color=C["text"],
+                                     font=(FONT, 14, "bold"))
         self.date_lbl.pack(side=tk.LEFT)
 
-        self.btn_next = tk.Label(date_inner, text="›", bg=C["surface"], fg=C["blue"],
-                                 font=(FONT, 20, "bold"), cursor="hand2")
+        self.btn_next = ctk.CTkLabel(date_inner, text="›", fg_color=C["surface"],
+                                     text_color=C["blue"],
+                                     font=(FONT, 20, "bold"), cursor="hand2")
         self.btn_next.pack(side=tk.LEFT, padx=(8, 0))
         self.btn_next.bind("<Button-1>", lambda e: self._shift_date(1))
 
@@ -117,44 +147,43 @@ class MainApp:
                  C["blue_light"], C["blue"], font_size=9, pady=3, padx=12,
                  fg=C["blue"]).pack(side=tk.LEFT, padx=(16, 0))
 
-        self.day_total_lbl = tk.Label(date_inner, text="", bg=C["surface"],
-                                      fg=C["text_sec"], font=(FONT, 10))
+        self.day_total_lbl = ctk.CTkLabel(date_inner, text="", fg_color=C["surface"],
+                                          text_color=C["text_sec"], font=(FONT, 10))
         self.day_total_lbl.pack(side=tk.RIGHT)
 
         # ── 筛选标签栏 ──
-        filter_bar = tk.Frame(self.root, bg=C["surface"])
+        filter_bar = ctk.CTkFrame(self.root, fg_color=C["surface"])
         filter_bar.pack(fill=tk.X)
+        filter_inner = ctk.CTkFrame(filter_bar, fg_color=C["surface"])
+        filter_inner.pack(fill=tk.X, padx=16, pady=(0, 3))
 
-        filter_inner = tk.Frame(filter_bar, bg=C["surface"])
-        filter_inner.pack(fill=tk.X, padx=16, pady=(0, 8))
+        self._seg_map = {"未完成": "active", "已完成": "completed", "全部": "all"}
+        self.filter_seg = ctk.CTkSegmentedButton(
+            filter_inner,
+            values=["未完成", "已完成", "全部"],
+            command=self._on_seg_filter,
+            corner_radius=RADIUS["pill"],
+            fg_color=C["bg"],
+            selected_color=C["blue_light"], selected_hover_color=C["border"],
+            unselected_color=C["surface"], unselected_hover_color=C["bg"],
+            text_color=C["text"], font=(FONT, 11),
+        )
+        self.filter_seg.set("未完成")
+        self.filter_seg.pack(side=tk.LEFT)
 
-        self.filter_chips = {}
-        for key, label in [("active", "未完成"), ("completed", "已完成"), ("all", "全部")]:
-            chip = tk.Label(
-                filter_inner, text=label, bg=C["surface"], fg=C["text_sec"],
-                font=(FONT, 10), cursor="hand2", padx=12, pady=3,
-            )
-            chip.pack(side=tk.LEFT, padx=(0, 4))
-            chip.bind("<Button-1>", lambda e, k=key: self._set_filter(k))
-            chip.bind("<Enter>", lambda e, c=chip: c.configure(fg=C["blue"]))
-            chip.bind("<Leave>", lambda e, c=chip, k=key:
-                      c.configure(fg=C["blue"] if self.filter_state == k else C["text_sec"]))
-            self.filter_chips[key] = chip
-
-        tk.Frame(self.root, bg=C["border"], height=1).pack(fill=tk.X)
+        ctk.CTkFrame(self.root, fg_color=C["border"], height=1).pack(fill=tk.X)
 
         # ── 输入卡片 ──
-        card_inp = tk.Frame(self.root, bg=C["surface"])
-        card_inp.pack(fill=tk.X, padx=20, pady=(12, 8))
+        card_inp = ctk.CTkFrame(self.root, fg_color=C["surface"])
+        card_inp.pack(fill=tk.X, padx=20, pady=(6, 4))
 
-        card_inp_inner = tk.Frame(card_inp, bg=C["surface"])
-        card_inp_inner.pack(fill=tk.X, padx=12, pady=12)
+        card_inp_inner = ctk.CTkFrame(card_inp, fg_color=C["surface"])
+        card_inp_inner.pack(fill=tk.X, padx=12, pady=8)
 
-        self.entry = tk.Entry(card_inp_inner, bg=C["bg"], fg=C["text"],
-                              insertbackground=C["blue"], relief=tk.SOLID,
-                              font=(FONT, 12), bd=1,
-                              highlightthickness=0)
-        self.entry.pack(side=tk.LEFT, fill=tk.X, expand=True, ipady=8, padx=(0, 10))
+        self.entry = ctk.CTkEntry(card_inp_inner, fg_color=C["bg"], text_color=C["text"],
+                                  border_color=C["border"], border_width=1,
+                                  corner_radius=RADIUS["card"], font=(FONT, 12), height=36)
+        self.entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
         self.entry.bind("<Return>", lambda e: self._add_todo())
         self.entry.focus_set()
 
@@ -162,85 +191,74 @@ class MainApp:
                  C["blue"], C["blue_hover"], font_size=12, pady=7, padx=20).pack(
             side=tk.LEFT)
 
-        # ── 底部按钮（两行）— 提前 pack，确保窗口缩小时不被挤出 ──
-        bf = tk.Frame(self.root, bg=C["bg"])
-        bf.pack(side=tk.BOTTOM, fill=tk.X, padx=20, pady=(0, 16))
+        # ── 工具栏（主操作 + 选中操作图标栏）—— 根治横向截断 ──
+        bf = ctk.CTkFrame(self.root, fg_color=C["bg"], corner_radius=0)
+        bf.pack(side=tk.BOTTOM, fill=tk.X, padx=20, pady=(0, 12))
 
-        # 第一行：操作按钮
-        r1 = tk.Frame(bf, bg=C["bg"])
-        r1.pack(fill=tk.X, pady=(0, 4))
+        # 主操作（文字按钮）
+        row_main = ctk.CTkFrame(bf, fg_color=C["bg"])
+        row_main.pack(fill=tk.X, pady=(0, 6))
+        flat_btn(row_main, "▶ 全部开始", self._start_all,
+                 C["green"], C["green_hover"], font_size=11).pack(side=tk.LEFT, padx=(0, 8))
+        flat_btn(row_main, "⏸ 全部暂停", self._pause_all,
+                 C["orange"], C["orange_hover"], font_size=11).pack(side=tk.LEFT, padx=(0, 8))
+        flat_btn(row_main, "🗄 清除已完成", self._archive_completed,
+                 C["surface"], C["bg"], font_size=11, fg=C["text_ter"]).pack(side=tk.RIGHT)
 
-        flat_btn(r1, "▶  全部开始", self._start_all,
-                 C["green"], C["green_hover"], font_size=10, pady=5, padx=10).pack(
-            side=tk.LEFT, padx=(0, 4))
-        flat_btn(r1, "⏸  全部暂停", self._pause_all,
-                 C["orange"], C["orange_hover"], font_size=10, pady=5, padx=10).pack(
-            side=tk.LEFT, padx=(0, 4))
-        flat_btn(r1, "★  标重点", self._toggle_star_selected,
-                 C["orange"], C["orange_hover"], font_size=10, pady=5, padx=10).pack(
-            side=tk.LEFT, padx=(0, 4))
-        flat_btn(r1, "✓  标记完成", self._toggle_complete_selected,
-                 C["green"], C["green_hover"], font_size=10, pady=5, padx=10).pack(
-            side=tk.LEFT, padx=(0, 4))
-        flat_btn(r1, "✎  编辑", self._edit_selected,
-                 C["blue"], C["blue_hover"], font_size=10, pady=5, padx=10).pack(
-            side=tk.LEFT, padx=(0, 4))
-        flat_btn(r1, "📅  改期", self._change_date,
-                 C["text_sec"], C["text_ter"], font_size=10, pady=5, padx=10).pack(
-            side=tk.LEFT, padx=(0, 4))
+        # 选中操作（纯图标 + tooltip）
+        row_icon = ctk.CTkFrame(bf, fg_color=C["bg"])
+        row_icon.pack(fill=tk.X)
 
-        # 第二行：排序 + 删除 + 归档
-        r2 = tk.Frame(bf, bg=C["bg"])
-        r2.pack(fill=tk.X)
+        def sep(p):
+            ctk.CTkFrame(p, fg_color=C["border"], width=1, height=0).pack(
+                side=tk.LEFT, fill=tk.Y, padx=6, pady=2)
 
-        flat_btn(r2, "↑  上移", self._move_up_selected,
-                 C["text_sec"], C["text_ter"], font_size=10, pady=5, padx=10).pack(
-            side=tk.LEFT, padx=(0, 4))
-        flat_btn(r2, "↓  下移", self._move_down_selected,
-                 C["text_sec"], C["text_ter"], font_size=10, pady=5, padx=10).pack(
-            side=tk.LEFT, padx=(0, 4))
-        flat_btn(r2, "🗑  删除", self._delete_selected,
-                 C["red"], C["red_hover"], font_size=10, pady=5, padx=10).pack(
-            side=tk.LEFT, padx=(0, 4))
-        flat_btn(r2, "🗄  清除已完成", self._archive_completed,
-                 C["text_ter"], C["red_light"], font_size=10, pady=5, padx=10).pack(
-            side=tk.RIGHT)
+        _icon_btn(row_icon, "★", self._toggle_star_selected, "标重点").pack(side=tk.LEFT, padx=2)
+        _icon_btn(row_icon, "✓", self._toggle_complete_selected, "标记完成").pack(side=tk.LEFT, padx=2)
+        _icon_btn(row_icon, "✎", self._edit_selected, "编辑").pack(side=tk.LEFT, padx=2)
+        _icon_btn(row_icon, "📅", self._change_date, "改期").pack(side=tk.LEFT, padx=2)
+        sep(row_icon)
+        _icon_btn(row_icon, "↑", self._move_up_selected, "上移").pack(side=tk.LEFT, padx=2)
+        _icon_btn(row_icon, "↓", self._move_down_selected, "下移").pack(side=tk.LEFT, padx=2)
+        sep(row_icon)
+        _icon_btn(row_icon, "🗑", self._delete_selected, "删除", danger=True).pack(side=tk.LEFT, padx=2)
 
         # ── 列表卡片 ──
-        card_list = tk.Frame(self.root, bg=C["surface"])
-        card_list.pack(fill=tk.BOTH, expand=True, padx=20, pady=(2, 8))
+        card_list = ctk.CTkFrame(self.root, fg_color=C["surface"])
+        card_list.pack(fill=tk.BOTH, expand=True, padx=20, pady=(0, 4))
 
-        lh = tk.Frame(card_list, bg=C["surface"])
-        lh.pack(fill=tk.X, padx=16, pady=(12, 4))
+        lh = ctk.CTkFrame(card_list, fg_color=C["surface"])
+        lh.pack(fill=tk.X, padx=16, pady=(8, 2))
 
-        self.list_title_lbl = tk.Label(lh, text="", bg=C["surface"], fg=C["text"],
-                                       font=(FONT, 12, "bold"))
+        self.list_title_lbl = ctk.CTkLabel(lh, text="", fg_color=C["surface"], text_color=C["text"],
+                                           font=(FONT, 12, "bold"))
         self.list_title_lbl.pack(side=tk.LEFT)
 
         # 搜索框
         self.search_var = tk.StringVar()
         self.search_var.trace_add("write", lambda *a: self._on_search_change())
-        self.search_entry = tk.Entry(lh, textvariable=self.search_var,
-                                      bg=C["bg"], fg=C["text"],
-                                      insertbackground=C["blue"],
-                                      relief=tk.SOLID, font=(FONT, 9), bd=1,
-                                      highlightthickness=0, width=18)
-        self.search_entry.pack(side=tk.RIGHT, ipady=2)
+        self.search_entry = ctk.CTkEntry(lh, textvariable=self.search_var,
+                                         fg_color=C["bg"], text_color=C["text"],
+                                         border_color=C["border"], border_width=1,
+                                         corner_radius=RADIUS["button"],
+                                         font=(FONT, 10), width=160)
+        self.search_entry.pack(side=tk.RIGHT)
 
-        tk.Frame(card_list, bg=C["border"], height=1).pack(fill=tk.X, padx=16)
+        ctk.CTkFrame(card_list, fg_color=C["border"], height=1).pack(fill=tk.X, padx=16)
 
         # ── 可滚动卡片区 ──
-        lc = tk.Frame(card_list, bg=C["surface"])
-        lc.pack(fill=tk.BOTH, expand=True, padx=4, pady=(4, 12))
+        # 列表区用浅灰底（C["bg"]），白色卡片在其上 pack 留间隙 → 卡片间有清晰分界
+        lc = ctk.CTkFrame(card_list, fg_color=C["bg"])
+        lc.pack(fill=tk.BOTH, expand=True, padx=4, pady=(4, 8))
 
-        self.canvas = tk.Canvas(lc, bg=C["surface"], highlightthickness=0, bd=0)
+        self.canvas = tk.Canvas(lc, bg=C["bg"], highlightthickness=0, bd=0)
         self.scrollbar = tk.Scrollbar(lc, orient=tk.VERTICAL,
                                       command=self.canvas.yview,
                                       bg=C["bg"], troughcolor=C["bg"],
                                       activebackground=C["blue"])
         self.canvas.configure(yscrollcommand=self.scrollbar.set)
 
-        self.card_frame = tk.Frame(self.canvas, bg=C["surface"])
+        self.card_frame = tk.Frame(self.canvas, bg=C["bg"])
         self.card_frame_id = self.canvas.create_window((0, 0), window=self.card_frame,
                                                        anchor="nw")
 
@@ -355,13 +373,16 @@ class MainApp:
         self._search_after_id = self.root.after(300, self._refresh_view)
 
     # ── 筛选 ──
+    def _on_seg_filter(self, value):
+        self._set_filter(self._seg_map[value])
+
     def _set_filter(self, state):
         self.filter_state = state
-        for key, chip in self.filter_chips.items():
-            if key == state:
-                chip.configure(fg=C["blue"], font=(FONT, 10, "bold"))
-            else:
-                chip.configure(fg=C["text_sec"], font=(FONT, 10))
+        # 同步分段按钮选中态（逆映射 state→中文键）
+        for cn, st in self._seg_map.items():
+            if st == state:
+                self.filter_seg.set(cn)
+                break
         self._refresh_view()
 
     # ── 日期 ──
@@ -470,20 +491,22 @@ class MainApp:
     def _refresh_view(self):
         self.date_lbl.configure(text=fmt_date_cn(self.current_date))
 
-        for key, chip in self.filter_chips.items():
-            if key == self.filter_state:
-                chip.configure(fg=C["blue"], font=(FONT, 10, "bold"))
-            else:
-                chip.configure(fg=C["text_sec"], font=(FONT, 10))
-
         titles = {"all": "全部待办", "active": "未完成", "completed": "已完成"}
         self.list_title_lbl.configure(text=titles.get(self.filter_state, "待办列表"))
 
-        # 清空卡片
-        for child in self.card_frame.winfo_children():
-            child.destroy()
+        # 复用卡片：仅隐藏缓存卡片，销毁装饰(分组标题/空提示)；清理已删除项的缓存
+        cached = set(self._card_cache.values())
+        for c in self._card_cache.values():
+            c.pack_forget()
+        for child in list(self.card_frame.winfo_children()):
+            if child not in cached:
+                child.destroy()
         self._cards = []
         self._selected_tid = None
+        for tid in list(self._card_cache.keys()):
+            if tid not in self.todos:
+                self._card_cache[tid].destroy()
+                del self._card_cache[tid]
 
         # 搜索过滤
         st = self._search_term.lower()
@@ -524,14 +547,8 @@ class MainApp:
             for w in today_items:
                 seq += 1
                 day_total += w.elapsed
-                card = TodoCard(self.card_frame, w, seq=seq, show_date=False)
-                card.callback_click = self._on_card_click
-                card.callback_double = self._on_card_double
-                card.callback_right = self._on_card_right_click
-                card.callback_drag_start = self._on_drag_start
-                card.callback_drag_move = self._on_drag_move
-                card.callback_drag_drop = self._on_drag_drop
-                card.pack(fill=tk.X)
+                card = self._obtain_card(w, seq, show_date=False)
+                card.pack(fill=tk.X, pady=(0, 4))
                 self._cards.append(card)
 
             # ── 跨日未完成 ──
@@ -559,15 +576,8 @@ class MainApp:
                     seq = 0
                     for w in group_items:
                         seq += 1
-                        card = TodoCard(self.card_frame, w, seq=seq,
-                                        show_date=(len(groups) == 1))
-                        card.callback_click = self._on_card_click
-                        card.callback_double = self._on_card_double
-                        card.callback_right = self._on_card_right_click
-                        card.callback_drag_start = self._on_drag_start
-                        card.callback_drag_move = self._on_drag_move
-                        card.callback_drag_drop = self._on_drag_drop
-                        card.pack(fill=tk.X)
+                        card = self._obtain_card(w, seq, show_date=(len(groups) == 1))
+                        card.pack(fill=tk.X, pady=(0, 4))
                         self._cards.append(card)
 
             # 统一空提示
@@ -603,14 +613,8 @@ class MainApp:
                     seq = 0
                     for w in group_items:
                         seq += 1
-                        card = TodoCard(self.card_frame, w, seq=seq, show_date=False)
-                        card.callback_click = self._on_card_click
-                        card.callback_double = self._on_card_double
-                        card.callback_right = self._on_card_right_click
-                        card.callback_drag_start = self._on_drag_start
-                        card.callback_drag_move = self._on_drag_move
-                        card.callback_drag_drop = self._on_drag_drop
-                        card.pack(fill=tk.X)
+                        card = self._obtain_card(w, seq, show_date=False)
+                        card.pack(fill=tk.X, pady=(0, 4))
                         self._cards.append(card)
             else:
                 hint = EmptyHint(self.card_frame, "暂无已完成待办")
@@ -647,14 +651,8 @@ class MainApp:
                         seq += 1
                         if not w.completed:
                             day_total += w.elapsed
-                        card = TodoCard(self.card_frame, w, seq=seq, show_date=False)
-                        card.callback_click = self._on_card_click
-                        card.callback_double = self._on_card_double
-                        card.callback_right = self._on_card_right_click
-                        card.callback_drag_start = self._on_drag_start
-                        card.callback_drag_move = self._on_drag_move
-                        card.callback_drag_drop = self._on_drag_drop
-                        card.pack(fill=tk.X)
+                        card = self._obtain_card(w, seq, show_date=False)
+                        card.pack(fill=tk.X, pady=(0, 4))
                         self._cards.append(card)
             else:
                 hint = EmptyHint(self.card_frame, "暂无待办")
@@ -672,6 +670,29 @@ class MainApp:
         running = sum(1 for w in self.todos.values() if w.running)
         self.stat_lbl.configure(
             text=f"全部 {total} 项 · 未完成 {active} · 已完成 {done} · 运行中 {running}")
+
+    def _obtain_card(self, w, seq, show_date):
+        """从缓存取或新建卡片。跨视图复用，避免每次切换都重建全部控件（CTk 控件
+        构造较慢，是切换卡顿的根因）。复用时仅重新 pack/排序并刷新状态。"""
+        tid = w.todo_id
+        card = self._card_cache.get(tid)
+        if card is None:
+            card = TodoCard(self.card_frame, w, seq=seq, show_date=show_date)
+            card.callback_click = self._on_card_click
+            card.callback_double = self._on_card_double
+            card.callback_right = self._on_card_right_click
+            card.callback_drag_start = self._on_drag_start
+            card.callback_drag_move = self._on_drag_move
+            card.callback_drag_drop = self._on_drag_drop
+            self._card_cache[tid] = card
+        else:
+            card.todo_widget = w
+            card.set_sequence(seq)
+            card.set_show_date(show_date)
+            card.set_selected(False)
+            card.set_dragging(False)
+            card.refresh()
+        return card
 
     # ── 卡片交互回调 ────────────────────────────────────
     def _on_card_click(self, tid):
@@ -833,21 +854,20 @@ class MainApp:
             return
         w = self.todos[tid]
 
-        dlg = tk.Toplevel(self.root)
+        dlg = ctk.CTkToplevel(self.root, fg_color=C["surface"])
         dlg.title("编辑待办")
         dlg.geometry("420x150")
-        dlg.configure(bg=C["surface"])
         dlg.resizable(False, False)
         dlg.transient(self.root)
         dlg.grab_set()
 
-        tk.Label(dlg, text="编辑待办事项", bg=C["surface"], fg=C["text"],
-                 font=(FONT, 13, "bold")).pack(pady=(14, 8))
+        ctk.CTkLabel(dlg, text="编辑待办事项", fg_color="transparent", text_color=C["text"],
+                     font=(FONT, 13, "bold")).pack(pady=(14, 8))
 
-        entry = tk.Entry(dlg, bg=C["bg"], fg=C["text"],
-                         insertbackground=C["blue"], relief=tk.FLAT,
-                         font=(FONT, 12), bd=0)
-        entry.pack(fill=tk.X, padx=20, ipady=7)
+        entry = ctk.CTkEntry(dlg, fg_color=C["bg"], text_color=C["text"],
+                             border_color=C["border"], border_width=1,
+                             corner_radius=RADIUS["card"], font=(FONT, 12), height=36)
+        entry.pack(fill=tk.X, padx=20)
         entry.insert(0, w.text)
         entry.select_range(0, tk.END)
         entry.focus_set()
@@ -864,7 +884,7 @@ class MainApp:
 
         entry.bind("<Return>", lambda e: save())
 
-        btns = tk.Frame(dlg, bg=C["surface"])
+        btns = ctk.CTkFrame(dlg, fg_color="transparent")
         btns.pack(pady=(12, 0))
         flat_btn(btns, "保存", save, C["blue"], C["blue_hover"],
                  font_size=10, pady=5, padx=24).pack(side=tk.LEFT, padx=6)
@@ -1002,11 +1022,12 @@ class MainApp:
         except Exception:
             pass
         g.configure(bg=C["blue"], highlightthickness=0, bd=0)
-        body = tk.Frame(g, bg=C["surface"])
-        body.pack(fill=tk.BOTH, expand=True, padx=2)  # 2px 蓝边
+        body = ctk.CTkFrame(g, fg_color=C["surface"], corner_radius=RADIUS["card"])
+        body.pack(fill=tk.BOTH, expand=True, padx=2)  # 2px 蓝边（圆角卡片浮于蓝边之上）
         text = self.todos[tid].text
-        lbl = tk.Label(body, text=f"✥ {text}", bg=C["surface"], fg=C["text"],
-                       font=(FONT, 10), anchor="w", padx=10, pady=6)
+        lbl = ctk.CTkLabel(body, text=f"✥ {text}", fg_color="transparent",
+                           text_color=C["text"], font=(FONT, 10),
+                           anchor="w", padx=10, pady=6)
         lbl.pack()
         # 立即定位到光标处，避免虚影先在 (0,0) 闪现
         try:
@@ -1189,23 +1210,23 @@ class MainApp:
         if self._tray is not None:
             self._tray.notify("计时提醒", f"「{w.text}」已达 {fmt_time(w.target_seconds)}")
 
-        dlg = tk.Toplevel(self.root)
+        dlg = ctk.CTkToplevel(self.root, fg_color=C["surface"])
         dlg.title("计时提醒")
         dlg.geometry("400x190")
-        dlg.configure(bg=C["surface"])
         dlg.attributes("-topmost", True)
         dlg.transient(self.root)
         self._center_over(dlg, 400, 190)
         dlg.grab_set()
         dlg.focus_force()
 
-        tk.Label(dlg, text="⏰ 计时目标达成", bg=C["surface"], fg=C["orange"],
-                 font=(FONT, 15, "bold")).pack(pady=(20, 8))
-        tk.Label(dlg, text=f"「{w.text}」\n已达 {fmt_time(w.target_seconds)}",
-                 bg=C["surface"], fg=C["text"], font=(FONT, 11),
-                 justify="center").pack(pady=(0, 14))
+        ctk.CTkLabel(dlg, text="⏰ 计时目标达成", fg_color="transparent",
+                     text_color=C["orange"],
+                     font=(FONT, 15, "bold")).pack(pady=(20, 8))
+        ctk.CTkLabel(dlg, text=f"「{w.text}」\n已达 {fmt_time(w.target_seconds)}",
+                     fg_color="transparent", text_color=C["text"], font=(FONT, 11),
+                     justify="center").pack(pady=(0, 14))
 
-        btns = tk.Frame(dlg, bg=C["surface"])
+        btns = ctk.CTkFrame(dlg, fg_color="transparent")
         btns.pack()
 
         def close():
@@ -1232,10 +1253,9 @@ class MainApp:
             return
         w = self.todos[tid]
 
-        dlg = tk.Toplevel(self.root)
+        dlg = ctk.CTkToplevel(self.root, fg_color=C["surface"])
         dlg.title("设置计时提醒")
         dlg.geometry("320x220")
-        dlg.configure(bg=C["surface"])
         dlg.resizable(False, False)
         dlg.transient(self.root)
         dlg.attributes("-topmost", True)   # 必须置顶，否则可能被主窗口盖住而 grab 卡死
@@ -1243,11 +1263,12 @@ class MainApp:
         dlg.grab_set()
         dlg.focus_force()
 
-        tk.Label(dlg, text="⏰ 目标时长提醒", bg=C["surface"], fg=C["text"],
-                 font=(FONT, 13, "bold")).pack(pady=(16, 2))
+        ctk.CTkLabel(dlg, text="⏰ 目标时长提醒", fg_color="transparent",
+                     text_color=C["text"],
+                     font=(FONT, 13, "bold")).pack(pady=(16, 2))
         cur = f"当前：{fmt_time(w.target_seconds)}" if w.target_seconds else "当前：未设置"
-        tk.Label(dlg, text=cur, bg=C["surface"], fg=C["text_sec"],
-                 font=(FONT, 9)).pack(pady=(0, 10))
+        ctk.CTkLabel(dlg, text=cur, fg_color="transparent", text_color=C["text_sec"],
+                     font=(FONT, 9)).pack(pady=(0, 10))
 
         def apply_minutes(m):
             w.set_target(m * 60)
@@ -1256,14 +1277,14 @@ class MainApp:
             self._schedule_save()
             dlg.destroy()
 
-        presets = tk.Frame(dlg, bg=C["surface"])
+        presets = ctk.CTkFrame(dlg, fg_color="transparent")
         presets.pack()
         for m in (5, 15, 25, 60):
             flat_btn(presets, f"{m} 分钟", lambda mm=m: apply_minutes(mm),
                      C["blue_light"], C["blue"], font_size=10, pady=4, padx=12,
                      fg=C["blue"]).pack(side=tk.LEFT, padx=3)
 
-        custom = tk.Frame(dlg, bg=C["surface"])
+        custom = ctk.CTkFrame(dlg, fg_color="transparent")
         custom.pack(pady=(10, 0))
 
         def apply_entry():
@@ -1274,7 +1295,9 @@ class MainApp:
             except ValueError:
                 pass
 
-        ent = tk.Entry(custom, width=6, font=(FONT, 10))
+        ent = ctk.CTkEntry(custom, fg_color=C["bg"], text_color=C["text"],
+                           border_color=C["border"], border_width=1,
+                           corner_radius=RADIUS["button"], font=(FONT, 10), width=60)
         ent.pack(side=tk.LEFT, padx=(0, 4))
         flat_btn(custom, "自定义", apply_entry, C["blue"], C["blue_hover"],
                  font_size=9, pady=3, padx=10).pack(side=tk.LEFT, padx=2)
@@ -1429,8 +1452,9 @@ class MainApp:
             pass
         bg = C[color_key]
         t.configure(bg=bg)
-        tk.Label(t, text=text, bg=bg, fg="white",
-                 font=(FONT, 11, "bold"), padx=22, pady=11).pack()
+        ctk.CTkLabel(t, text=text, fg_color=bg, text_color="white",
+                     corner_radius=6, font=(FONT, 11, "bold"),
+                     padx=22, pady=11).pack()
         t.update_idletasks()
         w = t.winfo_reqwidth()
         h = t.winfo_reqheight()

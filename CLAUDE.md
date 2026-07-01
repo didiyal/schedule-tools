@@ -4,8 +4,10 @@
 
 ```bash
 cd tools/workspace && python main.py                    # 开发运行
-pyinstaller --onefile --noconsole --name "待办计时器" --collect-all pystray --hidden-import six.moves --distpath "../" --workpath "../build_tmp" main.py
-rm -rf ../build_tmp 待办计时器.spec                      # 打包 → ../待办计时器.exe
+pyinstaller --onefile --noconsole --name "待办计时器" --collect-all pystray --collect-all customtkinter --hidden-import six.moves --icon "../installer/app.ico" --distpath "../" --workpath "../build_tmp" main.py
+rm -rf ../build_tmp 待办计时器.spec                      # 打包 → ../待办计时器.exe（含图标）
+installer\build_installer.bat                           # 一键打安装器（需 Inno Setup 6）→ ../待办计时器_Setup_1.1.0.exe
+python installer/make_icon.py                           # 仅重生成 app.ico
 ```
 
 Python 3.10+ 标准库 + pystray/pillow（系统托盘）。
@@ -43,6 +45,10 @@ Python 3.10+ 标准库 + pystray/pillow（系统托盘）。
 
 **原子保存**: `.tmp` → `os.replace()` → 复制 `.bak`。加载损坏时回退 `.bak`。
 
+**版本号**: `constants.APP_VERSION`（当前 `1.1.0`），顶栏标题右侧显示；安装器升级检测与安装包文件名同源。改版本时三处同步：`constants.py` / `installer.iss` 的 `MyAppVersion` / `build_installer.bat` 的输出名。
+
+**安装器**: `installer/installer.iss`（Inno Setup 6，UTF-8 BOM）。单用户免管理员，默认装 `{localappdata}\Programs\待办计时器`，向导可改路径；固定 `AppId` → 重复运行原地覆盖升级（升级前 `taskkill` 释放 EXE 占用）。`data/` **不打入安装包**，由程序首次运行自建 → 升级保留用户数据；卸载弹窗可选删除 `data/`。`installer/build_installer.bat` 串起 图标→PyInstaller→iscc；`installer/make_icon.py` 用 PIL 生成 `app.ico`（蓝底白色钟表）。简中向导语言文件 `installer/ChineseSimplified.isl` **本地随包**（kira-96 译，适用 6.5.0+，UTF-8 BOM）——Inno 官方安装包不含中文，故 `.iss` 的 `[Languages]` 不能用 `compiler:` 前缀，改为引用本地文件。
+
 ## 易错点
 
 - `int(time.time())` 截断亚秒差为 0，测试计时需 sleep ≥1.2s
@@ -50,3 +56,13 @@ Python 3.10+ 标准库 + pystray/pillow（系统托盘）。
 - TimerRow 时间 Label 先于文本 pack (RIGHT 优先)，保时间不被挤出
 - Canvas 内嵌 Frame 的 `<Configure>` 事件需手动更新 scrollregion
 - Observer 回调用列表存引用，TimerPanel 必须用 `remove_callback()` 精确移除自己的那条，否则内存泄漏
+- `installer.iss` 必须存 UTF-8 BOM（含中文 AppName，否则 Inno 按 GBK 误读成乱码）；`ChineseSimplified.isl` 同样需 UTF-8 BOM（否则中文系统按 GBK 误读向导文字）；`build_installer.bat` 为 GBK+CRLF（中文 Windows cmd 才能正确解析中文 EXE 名）
+
+## 文档同步
+
+代码或行为有变更时，必须同步更新对应文档，避免文档与代码漂移：
+
+- **版本号**：改 `constants.APP_VERSION` → 同步 `installer/installer.iss` 的 `MyAppVersion`、`build_installer.bat` 输出名、`docs/CHANGELOG.md`、以及 `docs/product/current.md` 与 `docs/development/current.md` 的「当前生效版本」。
+- **用户可见变更**（新功能 / 行为变化 / UI 调整）→ 写进 `docs/CHANGELOG.md` 摘要，详细变更进 `docs/product/<版本>/changelog.md`。
+- **架构或约束变化**（数据流、模块职责、构建/打包流程、新增易错点）→ 更新本文件对应段落。
+- **路线图**：已完成的功能从 `docs/ROADMAP.md`「候选」挪到「已完成」。

@@ -1,6 +1,7 @@
 import tkinter as tk
+import customtkinter as ctk
 from collections.abc import Callable
-from .constants import C, FONT
+from .constants import C, FONT, RADIUS
 from .utils import fmt_time
 from .tooltip import ToolTip
 
@@ -42,28 +43,30 @@ class TimerPanel:
         self.win.bind("<Enter>", self._on_panel_enter)
         self.win.bind("<Leave>", self._on_panel_leave)
 
-        shadow = tk.Frame(self.win, bg=C["shadow"], bd=0)
+        shadow = ctk.CTkFrame(self.win, fg_color=C["shadow"])
         shadow.pack(fill=tk.BOTH, expand=True)
 
-        card = tk.Frame(shadow, bg=C["surface"], bd=0)
+        card = ctk.CTkFrame(shadow, fg_color=C["surface"], corner_radius=RADIUS["card"])
         card.pack(fill=tk.BOTH, expand=True, padx=2, pady=2)
 
         # ── 标题栏 ──
-        self.title_bar = tk.Frame(card, bg=C["bg"], height=32)
+        self.title_bar = ctk.CTkFrame(card, fg_color=C["bg"], height=32)
         self.title_bar.pack(fill=tk.X, side=tk.TOP)
         self.title_bar.pack_propagate(False)
 
-        tk.Label(self.title_bar, text="⏱ 计时面板", bg=C["bg"], fg=C["text"],
-                 font=(FONT, 11, "bold")).pack(side=tk.LEFT, padx=12, pady=4)
+        ctk.CTkLabel(self.title_bar, text="⏱ 计时面板", fg_color="transparent",
+                     text_color=C["text"], font=(FONT, 11, "bold")
+                     ).pack(side=tk.LEFT, padx=12, pady=4)
 
-        close_lbl = tk.Label(self.title_bar, text="✕", bg=C["bg"], fg=C["text_ter"],
-                             font=(FONT, 12), cursor="hand2", padx=8)
+        close_lbl = ctk.CTkLabel(self.title_bar, text="✕", fg_color="transparent",
+                                 text_color=C["text_ter"], font=(FONT, 12),
+                                 cursor="hand2", padx=8)
         close_lbl.pack(side=tk.RIGHT, pady=4)
         close_lbl.bind("<Button-1>", lambda e: self.hide())
         close_lbl.bind("<Enter>",
-                       lambda e, c=close_lbl: c.configure(fg=C["text"], bg=C["border"]))
+                       lambda e, c=close_lbl: c.configure(text_color=C["text"], fg_color=C["border"]))
         close_lbl.bind("<Leave>",
-                       lambda e, c=close_lbl: c.configure(fg=C["text_ter"], bg=C["bg"]))
+                       lambda e, c=close_lbl: c.configure(text_color=C["text_ter"], fg_color=C["bg"]))
 
         # 拖拽
         for widget in (self.title_bar,):
@@ -72,7 +75,7 @@ class TimerPanel:
             widget.bind("<ButtonRelease-1>", self._on_drag_release)
 
         # 分隔线
-        tk.Frame(card, bg=C["border"], height=1).pack(fill=tk.X)
+        ctk.CTkFrame(card, fg_color=C["border"], height=1).pack(fill=tk.X)
 
         # ── 可滚动内容区 ──
         self.canvas = tk.Canvas(card, bg=C["surface"], highlightthickness=0, bd=0)
@@ -102,9 +105,10 @@ class TimerPanel:
         self.win.bind_all("<Button-5>", self._on_mousewheel, add="+")
 
         # 空面板提示
-        self._empty_hint = tk.Label(self.inner_frame, text="暂无计时项\n双击列表中的待办加入",
-                                    bg=C["surface"], fg=C["text_ter"],
-                                    font=(FONT, 10), justify="center")
+        self._empty_hint = ctk.CTkLabel(self.inner_frame,
+                                        text="暂无计时项\n双击列表中的待办加入",
+                                        fg_color="transparent", text_color=C["text_ter"],
+                                        font=(FONT, 10), justify="center")
         self._empty_hint.pack(fill=tk.X, pady=40)
 
     # ── 拖拽 + 吸附 ──
@@ -398,74 +402,80 @@ class TimerPanel:
             pass
 
 
-class TimerRow(tk.Frame):
+class TimerRow(ctk.CTkFrame):
     """面板中的一行 —— 显示一个待办的计时信息和控制按钮"""
 
     def __init__(self, parent, todo_widget, panel: TimerPanel, **kw):
-        super().__init__(parent, bg=C["surface"], cursor="hand2",
-                         highlightthickness=0, bd=0, **kw)
+        super().__init__(parent, fg_color=C["surface"], corner_radius=RADIUS["card"],
+                         cursor="hand2", **kw)
         self.todo_widget = todo_widget
         self.panel = panel
         w = todo_widget
 
         # ── 行间分隔线 ──
-        sep = tk.Frame(self, bg=C["border"], height=1)
+        sep = ctk.CTkFrame(self, fg_color=C["border"], height=1)
         sep.pack(fill=tk.X, side=tk.TOP)
 
         # ── 左侧色条 ──
-        self.accent = tk.Frame(self, bg=self._accent_color(), width=3)
+        self.accent = ctk.CTkFrame(self, fg_color=self._accent_color(), width=3, height=0)
         self.accent.pack(side=tk.LEFT, fill=tk.Y)
         self.accent.pack_propagate(False)
 
         # ── 内容区 ──
-        content = tk.Frame(self, bg=C["surface"])
+        content = ctk.CTkFrame(self, fg_color="transparent")
         content.pack(side=tk.LEFT, fill=tk.BOTH, expand=True,
                      padx=(10, 8), pady=(5, 5))
 
         # ── 第一行：状态 + 重点 + 文字 ──
-        top_row = tk.Frame(content, bg=C["surface"])
+        top_row = ctk.CTkFrame(content, fg_color="transparent")
         top_row.pack(fill=tk.X)
 
         status_text, status_fg = self._status_icon()
-        self.status_lbl = tk.Label(top_row, text=status_text, bg=C["surface"],
-                                   fg=status_fg, font=(FONT, 11))
+        self.status_lbl = ctk.CTkLabel(top_row, text=status_text, fg_color="transparent",
+                                       text_color=status_fg, font=(FONT, 11))
         self.status_lbl.pack(side=tk.LEFT)
 
         star_text = "★" if w.starred else ""
         star_fg = C["orange"] if w.starred else C["text_ter"]
-        self.star_lbl = tk.Label(top_row, text=star_text, bg=C["surface"],
-                                 fg=star_fg, font=(FONT, 10))
+        self.star_lbl = ctk.CTkLabel(top_row, text=star_text, fg_color="transparent",
+                                     text_color=star_fg, font=(FONT, 10))
         self.star_lbl.pack(side=tk.LEFT, padx=(1, 6))
 
-        self.text_lbl = tk.Label(top_row, text=self._truncate(w.text, 30),
-                                 bg=C["surface"], fg=C["text"],
-                                 font=(FONT, 10, "bold"), anchor="w")
+        self.text_lbl = ctk.CTkLabel(top_row, text=self._truncate(w.text, 30),
+                                     fg_color="transparent", text_color=C["text"],
+                                     font=(FONT, 10, "bold"), anchor="w")
         self.text_lbl.pack(side=tk.LEFT, fill=tk.X, expand=True)
         ToolTip(self.text_lbl, lambda: w.text)
 
         # ── 第二行：时间 + 按钮 ──
-        mid_row = tk.Frame(content, bg=C["surface"])
+        mid_row = ctk.CTkFrame(content, fg_color="transparent")
         mid_row.pack(fill=tk.X, pady=(3, 0))
 
-        self.time_lbl = tk.Label(mid_row, text=fmt_time(w.get_live_elapsed()),
-                                 bg=C["surface"], fg=self._time_color(),
-                                 font=("Consolas", 18, "bold"))
+        self.time_lbl = ctk.CTkLabel(mid_row, text=fmt_time(w.get_live_elapsed()),
+                                     fg_color="transparent", text_color=self._time_color(),
+                                     font=("Consolas", 18, "bold"))
         self.time_lbl.pack(side=tk.LEFT)
 
-        tk.Frame(mid_row, bg=C["surface"]).pack(side=tk.LEFT, fill=tk.X, expand=True)
+        # 弹簧：挤开时间(左)与按钮(右)。width=0 必加 —— CTkFrame 默认请求宽 200，
+        # 不加会吃掉按钮空间导致 4 个按钮溢出重叠（只露出最左的移除按钮）。
+        ctk.CTkFrame(mid_row, fg_color="transparent", width=0, height=0).pack(
+            side=tk.LEFT, fill=tk.X, expand=True)
 
-        self.btn_start = self._mini_btn(mid_row, "▶", self._on_start)
-        self.btn_start.pack(side=tk.RIGHT, padx=1)
+        self.btn_start = self._mini_btn(mid_row, "▶", self._on_start,
+                                        C["green"], C["green_hover"])
+        self.btn_start.pack(side=tk.RIGHT, padx=2)
 
-        self.btn_pause = self._mini_btn(mid_row, "⏸", self._on_pause)
-        self.btn_pause.pack(side=tk.RIGHT, padx=1)
+        self.btn_pause = self._mini_btn(mid_row, "⏸", self._on_pause,
+                                        C["orange"], C["orange_hover"])
+        self.btn_pause.pack(side=tk.RIGHT, padx=2)
 
-        self.btn_reset = self._mini_btn(mid_row, "↺", self._on_reset)
-        self.btn_reset.pack(side=tk.RIGHT, padx=1)
+        self.btn_reset = self._mini_btn(mid_row, "↺", self._on_reset,
+                                        C["blue"], C["blue_hover"])
+        self.btn_reset.pack(side=tk.RIGHT, padx=2)
 
         self.btn_remove = self._mini_btn(mid_row, "✕", self._on_remove,
-                                         fg=C["text_ter"], hover_bg=C["red_light"])
-        self.btn_remove.pack(side=tk.RIGHT, padx=1)
+                                         C["red"], C["red_hover"])
+        self.btn_remove.pack(side=tk.RIGHT, padx=2)
 
         # ── 右键菜单 ──
         self._build_menu()
@@ -476,19 +486,16 @@ class TimerRow(tk.Frame):
 
     # ── 迷你按钮 ──
     @staticmethod
-    def _mini_btn(parent, text, cmd, fg=C["text_sec"], hover_bg=C["blue_light"]):
-        f = tk.Frame(parent, bg=C["surface"], cursor="hand2",
-                     highlightthickness=0, bd=0)
-        lbl = tk.Label(f, text=text, bg=C["surface"], fg=fg, font=(FONT, 10),
-                       cursor="hand2", padx=5, pady=1)
-        lbl.pack()
-        for widget in (f, lbl):
-            widget.bind("<Button-1>", lambda e, c=cmd: c())
-            widget.bind("<Enter>", lambda e, ff=f, ll=lbl, hb=hover_bg:
-                        (ff.configure(bg=hb), ll.configure(bg=hb)))
-            widget.bind("<Leave>", lambda e, ff=f, ll=lbl:
-                        (ff.configure(bg=C["surface"]), ll.configure(bg=C["surface"])))
-        return f
+    def _mini_btn(parent, text, cmd, color, hover):
+        # 实心彩色按钮：白卡上高对比可见、白色图标、颜色区分功能（▶绿 ⏸橙 ↺灰 ✕红）。
+        # 早先的 surface/bg 浅底在白卡上几乎隐形 → 改实心。
+        btn = ctk.CTkButton(parent, text=text, command=cmd,
+                            width=28, height=24,
+                            fg_color=color, hover_color=hover,
+                            text_color="#FFFFFF", corner_radius=RADIUS["button"],
+                            font=(FONT, 11), border_width=0)
+        btn._on_bg = color  # 启用态底色；_btn_state 据此在 启用/禁用 间切换
+        return btn
 
     @staticmethod
     def _truncate(text, max_chars):
@@ -530,17 +537,17 @@ class TimerRow(tk.Frame):
     def refresh(self):
         w = self.todo_widget
 
-        self.accent.configure(bg=self._accent_color())
+        self.accent.configure(fg_color=self._accent_color())
 
         status_text, status_fg = self._status_icon()
-        self.status_lbl.configure(text=status_text, fg=status_fg)
+        self.status_lbl.configure(text=status_text, text_color=status_fg)
 
         star_text = "★" if w.starred else ""
         star_fg = C["orange"] if w.starred else C["text_ter"]
-        self.star_lbl.configure(text=star_text, fg=star_fg)
+        self.star_lbl.configure(text=star_text, text_color=star_fg)
 
         self.time_lbl.configure(text=fmt_time(w.get_live_elapsed()),
-                                fg=self._time_color())
+                                text_color=self._time_color())
 
         if w.completed:
             self._btn_state(self.btn_start, False)
@@ -556,12 +563,12 @@ class TimerRow(tk.Frame):
             self._btn_state(self.btn_reset, True)
 
     @staticmethod
-    def _btn_state(btn_frame, enabled):
-        lbl = btn_frame.winfo_children()[0]
-        if enabled:
-            lbl.configure(fg=C["text_sec"])
-        else:
-            lbl.configure(fg=C["text_ter"])
+    def _btn_state(btn, enabled):
+        # 启用=功能底色+白图标；禁用=中灰底+白图标。
+        # 早先禁用用 border(#E5E6EB) 太浅，白卡上隐形 → 已完成项只剩红✕可见。
+        on_bg = getattr(btn, "_on_bg", C["text_ter"])
+        btn.configure(fg_color=on_bg if enabled else C["text_ter"],
+                      text_color="#FFFFFF")
 
     # ── 右键菜单 ──
     def _build_menu(self):

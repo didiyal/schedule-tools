@@ -22,4 +22,15 @@ C = {
 }
 
 FONT = "Microsoft YaHei"
+
+# 应用版本号（安装器升级检测 + 顶栏显示）。改动后同步 installer/installer.iss 的 AppVersion。
+APP_VERSION = "1.1.0"
+
+# 圆角（customtkinter corner_radius 用）—— spec §5.2
+RADIUS = {
+    "card": 10,
+    "button": 8,
+    "pill": 999,
+}
+
 WEEKDAYS = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
