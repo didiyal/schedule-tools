@@ -47,7 +47,9 @@ CloseApplications=force
 RestartApplications=no
 
 [Languages]
-Name: "chinesesimp"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
+; 简中语言文件本地随包(kira-96 译, 适用 6.5.0+, 已加 UTF-8 BOM)。
+; Inno 官方安装包不含中文 → 不能用 compiler: 前缀, 改为引用本地 ChineseSimplified.isl。
+Name: "chinesesimp"; MessagesFile: "ChineseSimplified.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "在桌面创建快捷方式(&D)"; GroupDescription: "附加选项:"; Flags: unchecked
