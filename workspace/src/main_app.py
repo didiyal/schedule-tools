@@ -15,7 +15,7 @@ SAVE_FILE = os.path.join(_BASE, "data", "todos.json")
 ARCHIVE_FILE = os.path.join(_BASE, "data", "archive.json")
 
 import customtkinter as ctk
-from .constants import C, FONT, RADIUS
+from .constants import C, FONT, RADIUS, APP_VERSION
 from .utils import flat_btn, get_today_str, fmt_date_cn, fmt_time
 from .todo_widget import TodoWidget
 from .date_picker import DatePickerDialog
@@ -107,6 +107,11 @@ class MainApp:
         ctk.CTkLabel(hdr, text="待办计时器", fg_color=C["surface"],
                      text_color=C["text"], font=(FONT, 15, "bold")).pack(
             side=tk.LEFT, padx=20, pady=7)
+
+        # 版本号（紧贴标题右侧，小灰字）—— 安装器升级检测与这里同源
+        ctk.CTkLabel(hdr, text=f"v{APP_VERSION}", fg_color=C["surface"],
+                     text_color=C["text_ter"], font=(FONT, 10)).pack(
+            side=tk.LEFT, padx=(0, 20), pady=7)
 
         self.stat_lbl = ctk.CTkLabel(hdr, text="", fg_color=C["surface"],
                                      text_color=C["text_sec"], font=(FONT, 10))
