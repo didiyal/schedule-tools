@@ -458,18 +458,21 @@ class TimerRow(ctk.CTkFrame):
 
         ctk.CTkFrame(mid_row, fg_color="transparent", height=0).pack(side=tk.LEFT, fill=tk.X, expand=True)
 
-        self.btn_start = self._mini_btn(mid_row, "▶", self._on_start)
-        self.btn_start.pack(side=tk.RIGHT, padx=1)
+        self.btn_start = self._mini_btn(mid_row, "▶", self._on_start,
+                                        C["green"], C["green_hover"])
+        self.btn_start.pack(side=tk.RIGHT, padx=2)
 
-        self.btn_pause = self._mini_btn(mid_row, "⏸", self._on_pause)
-        self.btn_pause.pack(side=tk.RIGHT, padx=1)
+        self.btn_pause = self._mini_btn(mid_row, "⏸", self._on_pause,
+                                        C["orange"], C["orange_hover"])
+        self.btn_pause.pack(side=tk.RIGHT, padx=2)
 
-        self.btn_reset = self._mini_btn(mid_row, "↺", self._on_reset)
-        self.btn_reset.pack(side=tk.RIGHT, padx=1)
+        self.btn_reset = self._mini_btn(mid_row, "↺", self._on_reset,
+                                        C["text_ter"], C["text_sec"])
+        self.btn_reset.pack(side=tk.RIGHT, padx=2)
 
         self.btn_remove = self._mini_btn(mid_row, "✕", self._on_remove,
-                                         fg=C["text_ter"], hover_bg=C["red_light"])
-        self.btn_remove.pack(side=tk.RIGHT, padx=1)
+                                         C["red"], C["red_hover"])
+        self.btn_remove.pack(side=tk.RIGHT, padx=2)
 
         # ── 右键菜单 ──
         self._build_menu()
@@ -480,13 +483,15 @@ class TimerRow(ctk.CTkFrame):
 
     # ── 迷你按钮 ──
     @staticmethod
-    def _mini_btn(parent, text, cmd, fg=C["text_sec"], hover_bg=C["blue_light"]):
-        # 浅灰底按钮：白卡上清晰可见可点击（原 surface 白底白卡不可见）
+    def _mini_btn(parent, text, cmd, color, hover):
+        # 实心彩色按钮：白卡上高对比可见、白色图标、颜色区分功能（▶绿 ⏸橙 ↺灰 ✕红）。
+        # 早先的 surface/bg 浅底在白卡上几乎隐形 → 改实心。
         btn = ctk.CTkButton(parent, text=text, command=cmd,
-                            width=30, height=26,
-                            fg_color=C["bg"], hover_color=hover_bg,
-                            text_color=fg, corner_radius=RADIUS["button"],
-                            font=(FONT, 11), border_width=0)
+                            width=36, height=30,
+                            fg_color=color, hover_color=hover,
+                            text_color="#FFFFFF", corner_radius=RADIUS["button"],
+                            font=(FONT, 13), border_width=0)
+        btn._on_bg = color  # 启用态底色；_btn_state 据此在 启用/禁用 间切换
         return btn
 
     @staticmethod
@@ -556,7 +561,10 @@ class TimerRow(ctk.CTkFrame):
 
     @staticmethod
     def _btn_state(btn, enabled):
-        btn.configure(text_color=C["text_sec"] if enabled else C["text_ter"])
+        # 启用=功能底色+白图标；禁用=淡化灰底+灰图标（_on_bg 由 _mini_btn 写入）
+        on_bg = getattr(btn, "_on_bg", C["text_ter"])
+        btn.configure(fg_color=on_bg if enabled else C["border"],
+                      text_color="#FFFFFF" if enabled else C["text_ter"])
 
     # ── 右键菜单 ──
     def _build_menu(self):
