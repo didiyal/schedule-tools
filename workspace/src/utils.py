@@ -1,4 +1,3 @@
-import tkinter as tk
 import customtkinter as ctk
 from datetime import datetime
 from .constants import C, FONT, WEEKDAYS, RADIUS

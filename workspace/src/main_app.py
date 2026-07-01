@@ -1196,23 +1196,23 @@ class MainApp:
         if self._tray is not None:
             self._tray.notify("计时提醒", f"「{w.text}」已达 {fmt_time(w.target_seconds)}")
 
-        dlg = tk.Toplevel(self.root)
+        dlg = ctk.CTkToplevel(self.root, fg_color=C["surface"])
         dlg.title("计时提醒")
         dlg.geometry("400x190")
-        dlg.configure(bg=C["surface"])
         dlg.attributes("-topmost", True)
         dlg.transient(self.root)
         self._center_over(dlg, 400, 190)
         dlg.grab_set()
         dlg.focus_force()
 
-        tk.Label(dlg, text="⏰ 计时目标达成", bg=C["surface"], fg=C["orange"],
-                 font=(FONT, 15, "bold")).pack(pady=(20, 8))
-        tk.Label(dlg, text=f"「{w.text}」\n已达 {fmt_time(w.target_seconds)}",
-                 bg=C["surface"], fg=C["text"], font=(FONT, 11),
-                 justify="center").pack(pady=(0, 14))
+        ctk.CTkLabel(dlg, text="⏰ 计时目标达成", fg_color="transparent",
+                     text_color=C["orange"],
+                     font=(FONT, 15, "bold")).pack(pady=(20, 8))
+        ctk.CTkLabel(dlg, text=f"「{w.text}」\n已达 {fmt_time(w.target_seconds)}",
+                     fg_color="transparent", text_color=C["text"], font=(FONT, 11),
+                     justify="center").pack(pady=(0, 14))
 
-        btns = tk.Frame(dlg, bg=C["surface"])
+        btns = ctk.CTkFrame(dlg, fg_color="transparent")
         btns.pack()
 
         def close():
@@ -1239,10 +1239,9 @@ class MainApp:
             return
         w = self.todos[tid]
 
-        dlg = tk.Toplevel(self.root)
+        dlg = ctk.CTkToplevel(self.root, fg_color=C["surface"])
         dlg.title("设置计时提醒")
         dlg.geometry("320x220")
-        dlg.configure(bg=C["surface"])
         dlg.resizable(False, False)
         dlg.transient(self.root)
         dlg.attributes("-topmost", True)   # 必须置顶，否则可能被主窗口盖住而 grab 卡死
@@ -1250,11 +1249,12 @@ class MainApp:
         dlg.grab_set()
         dlg.focus_force()
 
-        tk.Label(dlg, text="⏰ 目标时长提醒", bg=C["surface"], fg=C["text"],
-                 font=(FONT, 13, "bold")).pack(pady=(16, 2))
+        ctk.CTkLabel(dlg, text="⏰ 目标时长提醒", fg_color="transparent",
+                     text_color=C["text"],
+                     font=(FONT, 13, "bold")).pack(pady=(16, 2))
         cur = f"当前：{fmt_time(w.target_seconds)}" if w.target_seconds else "当前：未设置"
-        tk.Label(dlg, text=cur, bg=C["surface"], fg=C["text_sec"],
-                 font=(FONT, 9)).pack(pady=(0, 10))
+        ctk.CTkLabel(dlg, text=cur, fg_color="transparent", text_color=C["text_sec"],
+                     font=(FONT, 9)).pack(pady=(0, 10))
 
         def apply_minutes(m):
             w.set_target(m * 60)
@@ -1263,14 +1263,14 @@ class MainApp:
             self._schedule_save()
             dlg.destroy()
 
-        presets = tk.Frame(dlg, bg=C["surface"])
+        presets = ctk.CTkFrame(dlg, fg_color="transparent")
         presets.pack()
         for m in (5, 15, 25, 60):
             flat_btn(presets, f"{m} 分钟", lambda mm=m: apply_minutes(mm),
                      C["blue_light"], C["blue"], font_size=10, pady=4, padx=12,
                      fg=C["blue"]).pack(side=tk.LEFT, padx=3)
 
-        custom = tk.Frame(dlg, bg=C["surface"])
+        custom = ctk.CTkFrame(dlg, fg_color="transparent")
         custom.pack(pady=(10, 0))
 
         def apply_entry():
@@ -1281,7 +1281,9 @@ class MainApp:
             except ValueError:
                 pass
 
-        ent = tk.Entry(custom, width=6, font=(FONT, 10))
+        ent = ctk.CTkEntry(custom, fg_color=C["bg"], text_color=C["text"],
+                           border_color=C["border"], border_width=1,
+                           corner_radius=RADIUS["button"], font=(FONT, 10), width=60)
         ent.pack(side=tk.LEFT, padx=(0, 4))
         flat_btn(custom, "自定义", apply_entry, C["blue"], C["blue_hover"],
                  font_size=9, pady=3, padx=10).pack(side=tk.LEFT, padx=2)
@@ -1436,8 +1438,9 @@ class MainApp:
             pass
         bg = C[color_key]
         t.configure(bg=bg)
-        tk.Label(t, text=text, bg=bg, fg="white",
-                 font=(FONT, 11, "bold"), padx=22, pady=11).pack()
+        ctk.CTkLabel(t, text=text, fg_color=bg, text_color="white",
+                     corner_radius=6, font=(FONT, 11, "bold"),
+                     padx=22, pady=11).pack()
         t.update_idletasks()
         w = t.winfo_reqwidth()
         h = t.winfo_reqheight()
