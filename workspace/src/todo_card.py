@@ -81,46 +81,42 @@ class TodoCard(ctk.CTkFrame):
         ToolTip(self.text_lbl, lambda: w.text)
 
         # ── 右侧信息 ──
+        # 所有标签始终创建、按状态切换文字（空文字≈0宽），便于跨视图复用卡片。
+        # pack 顺序 side=RIGHT（先 pack=最右）：hidden, date, time, done, rem
         right = ctk.CTkFrame(content, fg_color="transparent")
         right.pack(side=tk.RIGHT)
 
-        # 隐藏指示器 ◌
-        if is_hidden:
-            self.hidden_lbl = ctk.CTkLabel(right, text="◌", fg_color="transparent",
-                                           text_color=C["text_ter"], font=(FONT, 12),
-                                           height=_CARD_LABEL_H)
-            self.hidden_lbl.pack(side=tk.RIGHT, padx=(4, 0))
+        w_date = getattr(w, "_date", "") if hasattr(w, "_date") else ""
+        self._show_date = bool(show_date and w_date)
 
-        # 日期标签 (跨日项)
-        if show_date:
-            w_date = getattr(w, "_date", "") if hasattr(w, "_date") else ""
-            if w_date:
-                self.date_lbl = ctk.CTkLabel(right, text=f"[{fmt_date_short(w_date)}]",
-                                             fg_color="transparent", text_color=C["text_ter"],
-                                             font=(FONT, 11), height=_CARD_LABEL_H)
-                self.date_lbl.pack(side=tk.RIGHT, padx=(0, 6))
-
-        # 时间
         time_fg = C["strikethrough"] if w.completed else (
             C["text_ter"] if is_hidden else C["text"])
+
+        self.hidden_lbl = ctk.CTkLabel(right, text="◌" if is_hidden else "",
+                                       fg_color="transparent", text_color=C["text_ter"],
+                                       font=(FONT, 12), height=_CARD_LABEL_H)
+        self.hidden_lbl.pack(side=tk.RIGHT, padx=(4, 0))
+
+        self.date_lbl = ctk.CTkLabel(
+            right, text=(f"[{fmt_date_short(w_date)}]" if self._show_date else ""),
+            fg_color="transparent", text_color=C["text_ter"],
+            font=(FONT, 11), height=_CARD_LABEL_H)
+        self.date_lbl.pack(side=tk.RIGHT, padx=(0, 6))
+
         self.time_lbl = ctk.CTkLabel(right, text=fmt_time(w.elapsed), fg_color="transparent",
                                      text_color=time_fg, font=("Consolas", 13), anchor="e",
                                      height=_CARD_LABEL_H)
         self.time_lbl.pack(side=tk.RIGHT, padx=(0, 4))
 
-        # 已完成后缀
-        if w.completed:
-            self.done_lbl = ctk.CTkLabel(right, text="[已完成]", fg_color="transparent",
-                                         text_color=C["green"], font=(FONT, 11),
-                                         height=_CARD_LABEL_H)
-            self.done_lbl.pack(side=tk.RIGHT, padx=(0, 4))
+        self.done_lbl = ctk.CTkLabel(right, text="[已完成]" if w.completed else "",
+                                     fg_color="transparent", text_color=C["green"],
+                                     font=(FONT, 11), height=_CARD_LABEL_H)
+        self.done_lbl.pack(side=tk.RIGHT, padx=(0, 4))
 
-        # 计时提醒标记 ⏰ + 倒计时（仅当设置了目标时长）
-        if w.target_seconds:
-            self.rem_lbl = ctk.CTkLabel(right, text="⏰", fg_color="transparent",
-                                        text_color=C["orange"], font=(FONT, 11),
-                                        height=_CARD_LABEL_H)
-            self.rem_lbl.pack(side=tk.RIGHT, padx=(0, 4))
+        self.rem_lbl = ctk.CTkLabel(right, text="", fg_color="transparent",
+                                    text_color=C["orange"], font=(FONT, 11),
+                                    height=_CARD_LABEL_H)
+        self.rem_lbl.pack(side=tk.RIGHT, padx=(0, 4))
 
         # ── 点击 / 悬停 / 拖拽 ──
         self._selected = False
@@ -213,6 +209,7 @@ class TodoCard(ctk.CTkFrame):
             return
         w = self.todo_widget
         if not w.target_seconds:
+            self.rem_lbl.configure(text="")
             return
         if w.completed:
             txt = "⏰"
@@ -245,8 +242,16 @@ class TodoCard(ctk.CTkFrame):
         self._seq = seq
         self.seq_lbl.configure(text=_circled(seq) if seq > 0 else "")
 
+    def set_show_date(self, show):
+        """切换日期标签显隐（跨日项）；跨视图复用卡片时由主窗口调用。"""
+        w = self.todo_widget
+        self._show_date = show
+        w_date = getattr(w, "_date", "") if hasattr(w, "_date") else ""
+        self.date_lbl.configure(
+            text=f"[{fmt_date_short(w_date)}]" if show and w_date else "")
+
     def refresh(self):
-        """根据 todo_widget 当前状态刷新显示"""
+        """根据 todo_widget 当前状态刷新显示（跨视图复用时调用以同步全部标签）。"""
         w = self.todo_widget
         self.accent.configure(fg_color=self._accent_color(w))
 
@@ -266,6 +271,11 @@ class TodoCard(ctk.CTkFrame):
         time_fg = C["strikethrough"] if w.completed else (
             C["text_ter"] if is_hidden else C["text"])
         self.time_lbl.configure(text=fmt_time(w.elapsed), text_color=time_fg)
+
+        self.hidden_lbl.configure(text="◌" if is_hidden else "")
+        self.done_lbl.configure(text="[已完成]" if w.completed else "")
+        self.set_show_date(self._show_date)
+        self.update_reminder()
 
 
 class SectionHeader(ctk.CTkFrame):

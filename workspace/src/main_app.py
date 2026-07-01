@@ -57,6 +57,7 @@ class MainApp:
         self.current_date = get_today_str()
         self.filter_state = "active"
         self._cards: list = []  # TodoCard | SectionHeader | EmptyHint
+        self._card_cache: dict = {}  # todo_id -> TodoCard（跨视图复用，避免重建）
         self._selected_tid: str | None = None
         self._search_term = ""
         self._undo_action = None
@@ -487,11 +488,19 @@ class MainApp:
         titles = {"all": "全部待办", "active": "未完成", "completed": "已完成"}
         self.list_title_lbl.configure(text=titles.get(self.filter_state, "待办列表"))
 
-        # 清空卡片
-        for child in self.card_frame.winfo_children():
-            child.destroy()
+        # 复用卡片：仅隐藏缓存卡片，销毁装饰(分组标题/空提示)；清理已删除项的缓存
+        cached = set(self._card_cache.values())
+        for c in self._card_cache.values():
+            c.pack_forget()
+        for child in list(self.card_frame.winfo_children()):
+            if child not in cached:
+                child.destroy()
         self._cards = []
         self._selected_tid = None
+        for tid in list(self._card_cache.keys()):
+            if tid not in self.todos:
+                self._card_cache[tid].destroy()
+                del self._card_cache[tid]
 
         # 搜索过滤
         st = self._search_term.lower()
@@ -532,13 +541,7 @@ class MainApp:
             for w in today_items:
                 seq += 1
                 day_total += w.elapsed
-                card = TodoCard(self.card_frame, w, seq=seq, show_date=False)
-                card.callback_click = self._on_card_click
-                card.callback_double = self._on_card_double
-                card.callback_right = self._on_card_right_click
-                card.callback_drag_start = self._on_drag_start
-                card.callback_drag_move = self._on_drag_move
-                card.callback_drag_drop = self._on_drag_drop
+                card = self._obtain_card(w, seq, show_date=False)
                 card.pack(fill=tk.X)
                 self._cards.append(card)
 
@@ -567,14 +570,7 @@ class MainApp:
                     seq = 0
                     for w in group_items:
                         seq += 1
-                        card = TodoCard(self.card_frame, w, seq=seq,
-                                        show_date=(len(groups) == 1))
-                        card.callback_click = self._on_card_click
-                        card.callback_double = self._on_card_double
-                        card.callback_right = self._on_card_right_click
-                        card.callback_drag_start = self._on_drag_start
-                        card.callback_drag_move = self._on_drag_move
-                        card.callback_drag_drop = self._on_drag_drop
+                        card = self._obtain_card(w, seq, show_date=(len(groups) == 1))
                         card.pack(fill=tk.X)
                         self._cards.append(card)
 
@@ -611,13 +607,7 @@ class MainApp:
                     seq = 0
                     for w in group_items:
                         seq += 1
-                        card = TodoCard(self.card_frame, w, seq=seq, show_date=False)
-                        card.callback_click = self._on_card_click
-                        card.callback_double = self._on_card_double
-                        card.callback_right = self._on_card_right_click
-                        card.callback_drag_start = self._on_drag_start
-                        card.callback_drag_move = self._on_drag_move
-                        card.callback_drag_drop = self._on_drag_drop
+                        card = self._obtain_card(w, seq, show_date=False)
                         card.pack(fill=tk.X)
                         self._cards.append(card)
             else:
@@ -655,13 +645,7 @@ class MainApp:
                         seq += 1
                         if not w.completed:
                             day_total += w.elapsed
-                        card = TodoCard(self.card_frame, w, seq=seq, show_date=False)
-                        card.callback_click = self._on_card_click
-                        card.callback_double = self._on_card_double
-                        card.callback_right = self._on_card_right_click
-                        card.callback_drag_start = self._on_drag_start
-                        card.callback_drag_move = self._on_drag_move
-                        card.callback_drag_drop = self._on_drag_drop
+                        card = self._obtain_card(w, seq, show_date=False)
                         card.pack(fill=tk.X)
                         self._cards.append(card)
             else:
@@ -680,6 +664,29 @@ class MainApp:
         running = sum(1 for w in self.todos.values() if w.running)
         self.stat_lbl.configure(
             text=f"全部 {total} 项 · 未完成 {active} · 已完成 {done} · 运行中 {running}")
+
+    def _obtain_card(self, w, seq, show_date):
+        """从缓存取或新建卡片。跨视图复用，避免每次切换都重建全部控件（CTk 控件
+        构造较慢，是切换卡顿的根因）。复用时仅重新 pack/排序并刷新状态。"""
+        tid = w.todo_id
+        card = self._card_cache.get(tid)
+        if card is None:
+            card = TodoCard(self.card_frame, w, seq=seq, show_date=show_date)
+            card.callback_click = self._on_card_click
+            card.callback_double = self._on_card_double
+            card.callback_right = self._on_card_right_click
+            card.callback_drag_start = self._on_drag_start
+            card.callback_drag_move = self._on_drag_move
+            card.callback_drag_drop = self._on_drag_drop
+            self._card_cache[tid] = card
+        else:
+            card.todo_widget = w
+            card.set_sequence(seq)
+            card.set_show_date(show_date)
+            card.set_selected(False)
+            card.set_dragging(False)
+            card.refresh()
+        return card
 
     # ── 卡片交互回调 ────────────────────────────────────
     def _on_card_click(self, tid):
