@@ -840,21 +840,20 @@ class MainApp:
             return
         w = self.todos[tid]
 
-        dlg = tk.Toplevel(self.root)
+        dlg = ctk.CTkToplevel(self.root, fg_color=C["surface"])
         dlg.title("编辑待办")
         dlg.geometry("420x150")
-        dlg.configure(bg=C["surface"])
         dlg.resizable(False, False)
         dlg.transient(self.root)
         dlg.grab_set()
 
-        tk.Label(dlg, text="编辑待办事项", bg=C["surface"], fg=C["text"],
-                 font=(FONT, 13, "bold")).pack(pady=(14, 8))
+        ctk.CTkLabel(dlg, text="编辑待办事项", fg_color="transparent", text_color=C["text"],
+                     font=(FONT, 13, "bold")).pack(pady=(14, 8))
 
-        entry = tk.Entry(dlg, bg=C["bg"], fg=C["text"],
-                         insertbackground=C["blue"], relief=tk.FLAT,
-                         font=(FONT, 12), bd=0)
-        entry.pack(fill=tk.X, padx=20, ipady=7)
+        entry = ctk.CTkEntry(dlg, fg_color=C["bg"], text_color=C["text"],
+                             border_color=C["border"], border_width=1,
+                             corner_radius=RADIUS["card"], font=(FONT, 12), height=36)
+        entry.pack(fill=tk.X, padx=20)
         entry.insert(0, w.text)
         entry.select_range(0, tk.END)
         entry.focus_set()
@@ -871,7 +870,7 @@ class MainApp:
 
         entry.bind("<Return>", lambda e: save())
 
-        btns = tk.Frame(dlg, bg=C["surface"])
+        btns = ctk.CTkFrame(dlg, fg_color="transparent")
         btns.pack(pady=(12, 0))
         flat_btn(btns, "保存", save, C["blue"], C["blue_hover"],
                  font_size=10, pady=5, padx=24).pack(side=tk.LEFT, padx=6)
