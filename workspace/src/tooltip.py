@@ -1,5 +1,6 @@
 import tkinter as tk
-from .constants import C, FONT
+import customtkinter as ctk
+from .constants import FONT
 
 
 class ToolTip:
@@ -40,11 +41,13 @@ class ToolTip:
         self.tip = tk.Toplevel(self.widget)
         self.tip.overrideredirect(True)
         self.tip.attributes("-topmost", True)
+        self.tip.configure(bg="#1F2329")
 
-        tk.Label(
-            self.tip, text=text, bg="#1F2329", fg="#FFFFFF",
-            font=(FONT, 10), padx=10, pady=6, wraplength=360,
-            justify="left",
+        ctk.CTkLabel(
+            self.tip, text=text,
+            fg_color="#1F2329", text_color="#FFFFFF",
+            corner_radius=6, font=(FONT, 10),
+            padx=10, pady=6, wraplength=360, justify="left",
         ).pack()
 
         # 放在控件下方
