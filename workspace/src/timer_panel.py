@@ -417,7 +417,7 @@ class TimerRow(ctk.CTkFrame):
         sep.pack(fill=tk.X, side=tk.TOP)
 
         # ── 左侧色条 ──
-        self.accent = ctk.CTkFrame(self, fg_color=self._accent_color(), width=3)
+        self.accent = ctk.CTkFrame(self, fg_color=self._accent_color(), width=3, height=0)
         self.accent.pack(side=tk.LEFT, fill=tk.Y)
         self.accent.pack_propagate(False)
 
@@ -456,7 +456,7 @@ class TimerRow(ctk.CTkFrame):
                                      font=("Consolas", 18, "bold"))
         self.time_lbl.pack(side=tk.LEFT)
 
-        ctk.CTkFrame(mid_row, fg_color="transparent").pack(side=tk.LEFT, fill=tk.X, expand=True)
+        ctk.CTkFrame(mid_row, fg_color="transparent", height=0).pack(side=tk.LEFT, fill=tk.X, expand=True)
 
         self.btn_start = self._mini_btn(mid_row, "▶", self._on_start)
         self.btn_start.pack(side=tk.RIGHT, padx=1)

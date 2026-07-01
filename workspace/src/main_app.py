@@ -203,7 +203,7 @@ class MainApp:
         row_icon.pack(fill=tk.X)
 
         def sep(p):
-            ctk.CTkFrame(p, fg_color=C["border"], width=1).pack(
+            ctk.CTkFrame(p, fg_color=C["border"], width=1, height=0).pack(
                 side=tk.LEFT, fill=tk.Y, padx=6, pady=2)
 
         _icon_btn(row_icon, "★", self._toggle_star_selected, "标重点").pack(side=tk.LEFT, padx=2)
