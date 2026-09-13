@@ -9,7 +9,7 @@
 ;   * 卸载时弹窗: 可选是否一并删除待办数据
 
 #define MyAppName      "待办计时器"
-#define MyAppVersion   "1.1.0"
+#define MyAppVersion   "1.1.1"
 #define MyAppExeName   "待办计时器.exe"
 #define MyAppSourceExe "..\待办计时器.exe"
 
@@ -83,8 +83,10 @@ begin
   if CurUninstallStep = usUninstall then
   begin
     // 询问是否一并删除待办数据。默认「否」—— 保留 data/ 以便将来恢复或重装后继续使用。
-    if MsgBox('是否同时删除本机的待办数据?' #13#10 '选「否」将保留 data 目录, 便于将来恢复或重装后继续使用。',
-              mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES then
+    // SuppressibleMsgBox: 静默卸载(/VERYSILENT /SUPPRESSMSGBOXES)时不弹窗, 按默认值
+    // IDNO(保留数据)处理, 无人值守升级不被卡住; 交互卸载行为与原来一致。
+    if SuppressibleMsgBox('是否同时删除本机的待办数据?' #13#10 '选「否」将保留 data 目录, 便于将来恢复或重装后继续使用。',
+              mbConfirmation, MB_YESNO or MB_DEFBUTTON2, IDNO) = IDYES then
     begin
       DelTree(ExpandConstant('{app}\data'), True, True, True);
     end;

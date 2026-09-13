@@ -24,7 +24,7 @@ C = {
 FONT = "Microsoft YaHei"
 
 # 应用版本号（安装器升级检测 + 顶栏显示）。改动后同步 installer/installer.iss 的 AppVersion。
-APP_VERSION = "1.1.0"
+APP_VERSION = "1.1.1"
 
 # 圆角（customtkinter corner_radius 用）—— spec §5.2
 RADIUS = {

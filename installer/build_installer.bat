@@ -49,7 +49,7 @@ popd
 
 echo.
 echo ============================================================
-echo  DONE.  Installer:  %ROOT%\待办计时器_Setup_1.1.0.exe
+echo  DONE.  Installer:  %ROOT%\待办计时器_Setup_1.1.1.exe
 echo ============================================================
 endlocal
 exit /b 0

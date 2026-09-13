@@ -21,6 +21,7 @@ class TimerPanel:
         self._rows: dict[str, "TimerRow"] = {}
         self._row_callbacks: dict[str, Callable] = {}  # todo_id → callback ref for removal
         self._tick_after_id = None
+        self._scrollregion_after_id = None
 
         # 吸附状态
         self._docked = False        # 是否已吸附顶部
@@ -93,9 +94,7 @@ class TimerPanel:
         self.scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
 
         self.canvas.bind("<Configure>", self._on_canvas_configure)
-        self.inner_frame.bind("<Configure>",
-                              lambda e: self.canvas.configure(
-                                  scrollregion=self.canvas.bbox("all")))
+        self.inner_frame.bind("<Configure>", self._on_inner_configure)
 
         # 鼠标滚轮 — 绑定到窗口级(bind_all)：停在面板内行(子控件)上时事件发给
         # 子控件而非 Canvas，Canvas 上的绑定不会触发。改用 bind_all 后任意位置
@@ -248,6 +247,16 @@ class TimerPanel:
     # ── Canvas ──
     def _on_canvas_configure(self, event):
         self.canvas.itemconfig(self.inner_id, width=event.width)
+
+    def _on_inner_configure(self, _event=None):
+        """inner_frame 尺寸变化 → 50ms 合并刷新滚动区域（Canvas 逐次重绘太贵）"""
+        if self._scrollregion_after_id:
+            return
+        self._scrollregion_after_id = self.win.after(50, self._apply_scrollregion)
+
+    def _apply_scrollregion(self):
+        self._scrollregion_after_id = None
+        self.canvas.configure(scrollregion=self.canvas.bbox("all"))
 
     def _on_mousewheel(self, event):
         # 仅当光标位于本面板内时滚动，不串扰主窗口
@@ -536,6 +545,19 @@ class TimerRow(ctk.CTkFrame):
     # ── 刷新显示 ──
     def refresh(self):
         w = self.todo_widget
+        if w.completed:
+            btns = (False, False, False)
+        elif w.running:
+            btns = (False, True, True)
+        else:
+            btns = (True, False, True)
+        # 面板 tick 每 200ms 调一次本方法；状态未变时全部跳过（CTk 同值 configure 也重绘）
+        state = (self._accent_color(),) + self._status_icon() + (
+            "★" if w.starred else "", self._time_color(),
+            fmt_time(w.get_live_elapsed()), btns)
+        if state == getattr(self, "_row_state", None):
+            return
+        self._row_state = state
 
         self.accent.configure(fg_color=self._accent_color())
 
@@ -549,23 +571,18 @@ class TimerRow(ctk.CTkFrame):
         self.time_lbl.configure(text=fmt_time(w.get_live_elapsed()),
                                 text_color=self._time_color())
 
-        if w.completed:
-            self._btn_state(self.btn_start, False)
-            self._btn_state(self.btn_pause, False)
-            self._btn_state(self.btn_reset, False)
-        elif w.running:
-            self._btn_state(self.btn_start, False)
-            self._btn_state(self.btn_pause, True)
-            self._btn_state(self.btn_reset, True)
-        else:
-            self._btn_state(self.btn_start, True)
-            self._btn_state(self.btn_pause, False)
-            self._btn_state(self.btn_reset, True)
+        self._btn_state(self.btn_start, btns[0])
+        self._btn_state(self.btn_pause, btns[1])
+        self._btn_state(self.btn_reset, btns[2])
 
     @staticmethod
     def _btn_state(btn, enabled):
         # 启用=功能底色+白图标；禁用=中灰底+白图标。
         # 早先禁用用 border(#E5E6EB) 太浅，白卡上隐形 → 已完成项只剩红✕可见。
+        if getattr(btn, "_enabled", None) == enabled:
+            return
+        btn._enabled = enabled
+        # 启用态底色由 _mini_btn 存在 _on_bg；禁用统一中灰
         on_bg = getattr(btn, "_on_bg", C["text_ter"])
         btn.configure(fg_color=on_bg if enabled else C["text_ter"],
                       text_color="#FFFFFF")

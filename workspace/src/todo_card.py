@@ -14,13 +14,14 @@ def _circled(n):
     return f"({n})"
 
 
-# CTkLabel 默认渲染高 35px（与字号无关），显式指定以控制行高。
-# 字号整体 +2 后文字 ~17-18px，行高 28 宽松容纳、不裁切。
-_CARD_LABEL_H = 28
-
-
 class TodoCard(ctk.CTkFrame):
-    """列表中的待办卡片 — 替代 Listbox 纯文本行"""
+    """列表中的待办卡片 — 替代 Listbox 纯文本行。
+
+    只有外壳用 CTk（圆角 + 选中/悬停底色），内部标签与容器全部是纯 tk 控件：
+    一张卡片映射/重排的原生开销与 CTk 控件数量成正比（实测 14 个 CTk 控件时
+    98 张全量重排 ≈4s），纯 tk 子控件几乎零成本。纯 tk 子控件的 bg 不透明，
+    需随卡片状态（默认/选中/悬停）同步 —— 统一由 _apply_fg 完成。
+    """
 
     def __init__(self, parent, todo_widget, seq=0, show_date=False, **kw):
         super().__init__(parent, fg_color=C["surface"], corner_radius=RADIUS["card"],
@@ -30,51 +31,52 @@ class TodoCard(ctk.CTkFrame):
         self._seq = seq
 
         # ── 左侧色条 ──
-        accent_color = self._accent_color(w)
-        self.accent = ctk.CTkFrame(self, fg_color=accent_color, width=3, height=0)
+        self.accent = tk.Frame(self, bg=self._accent_color(w), width=3)
         self.accent.pack(side=tk.LEFT, fill=tk.Y)
         self.accent.pack_propagate(False)
 
         # ── 内容区 ──
-        content = ctk.CTkFrame(self, fg_color="transparent")
+        content = tk.Frame(self, bg=C["surface"])
         content.pack(side=tk.LEFT, fill=tk.BOTH, expand=True,
-                     padx=(12, 10), pady=(4, 4))
+                     padx=(12, 10), pady=(6, 6))
+        self._plain = [content]
+
+        def plabel(parent, text, fg, font, **kw2):
+            lbl = tk.Label(parent, text=text, bg=C["surface"], fg=fg,
+                           font=font, cursor="hand2", **kw2)
+            self._plain.append(lbl)
+            return lbl
 
         # 左侧图标组
-        icons = ctk.CTkFrame(content, fg_color="transparent")
+        icons = tk.Frame(content, bg=C["surface"])
         icons.pack(side=tk.LEFT)
+        self._plain.append(icons)
 
         # ① 序号
         seq_text = _circled(seq) if seq > 0 else ""
-        self.seq_lbl = ctk.CTkLabel(icons, text=seq_text, fg_color="transparent",
-                                    text_color=C["text_sec"], font=(FONT, 12),
-                                    height=_CARD_LABEL_H)
+        self.seq_lbl = plabel(icons, seq_text, C["text_sec"], (FONT, 12))
         self.seq_lbl.pack(side=tk.LEFT)
 
         # ★ 重点标记
         star_text = "★" if w.starred else ""
         star_fg = C["orange"] if w.starred else C["text_ter"]
-        self.star_lbl = ctk.CTkLabel(icons, text=star_text, fg_color="transparent",
-                                     text_color=star_fg, font=(FONT, 12),
-                                     height=_CARD_LABEL_H)
+        self.star_lbl = plabel(icons, star_text, star_fg, (FONT, 12))
         self.star_lbl.pack(side=tk.LEFT)
 
         # ●○✓ 状态图标
         status_text, status_fg = self._status_icon(w)
-        self.status_lbl = ctk.CTkLabel(icons, text=status_text, fg_color="transparent",
-                                       text_color=status_fg, font=(FONT, 14),
-                                       height=_CARD_LABEL_H)
+        self.status_lbl = plabel(icons, status_text, status_fg, (FONT, 14))
         self.status_lbl.pack(side=tk.LEFT, padx=(2, 0))
 
         # 间距
-        ctk.CTkFrame(content, fg_color="transparent", width=8, height=0).pack(side=tk.LEFT)
+        spacer = tk.Frame(content, bg=C["surface"], width=8)
+        spacer.pack(side=tk.LEFT)
+        self._plain.append(spacer)
 
         # 文字（可伸展）
         is_hidden = not w.is_visible()
         text_fg = C["text_ter"] if is_hidden else C["text"]
-        self.text_lbl = ctk.CTkLabel(content, text=w.text, fg_color="transparent",
-                                     text_color=text_fg, font=(FONT, 13), anchor="w",
-                                     height=_CARD_LABEL_H)
+        self.text_lbl = plabel(content, w.text, text_fg, (FONT, 13), anchor="w")
         self.text_lbl.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
         # 长文字悬浮提示
@@ -83,8 +85,9 @@ class TodoCard(ctk.CTkFrame):
         # ── 右侧信息 ──
         # 所有标签始终创建、按状态切换文字（空文字≈0宽），便于跨视图复用卡片。
         # pack 顺序 side=RIGHT（先 pack=最右）：hidden, date, time, done, rem
-        right = ctk.CTkFrame(content, fg_color="transparent")
+        right = tk.Frame(content, bg=C["surface"])
         right.pack(side=tk.RIGHT)
+        self._plain.append(right)
 
         w_date = getattr(w, "_date", "") if hasattr(w, "_date") else ""
         self._show_date = bool(show_date and w_date)
@@ -92,34 +95,33 @@ class TodoCard(ctk.CTkFrame):
         time_fg = C["strikethrough"] if w.completed else (
             C["text_ter"] if is_hidden else C["text"])
 
-        self.hidden_lbl = ctk.CTkLabel(right, text="◌" if is_hidden else "",
-                                       fg_color="transparent", text_color=C["text_ter"],
-                                       font=(FONT, 12), height=_CARD_LABEL_H)
+        self.hidden_lbl = plabel(right, "◌" if is_hidden else "",
+                                 C["text_ter"], (FONT, 12))
         self.hidden_lbl.pack(side=tk.RIGHT, padx=(4, 0))
 
-        self.date_lbl = ctk.CTkLabel(
-            right, text=(f"[{fmt_date_short(w_date)}]" if self._show_date else ""),
-            fg_color="transparent", text_color=C["text_ter"],
-            font=(FONT, 11), height=_CARD_LABEL_H)
+        self.date_lbl = plabel(
+            right, (f"[{fmt_date_short(w_date)}]" if self._show_date else ""),
+            C["text_ter"], (FONT, 11))
         self.date_lbl.pack(side=tk.RIGHT, padx=(0, 6))
 
-        self.time_lbl = ctk.CTkLabel(right, text=fmt_time(w.elapsed), fg_color="transparent",
-                                     text_color=time_fg, font=("Consolas", 13), anchor="e",
-                                     height=_CARD_LABEL_H)
+        self._time_txt = fmt_time(w.elapsed)
+        self.time_lbl = plabel(right, self._time_txt, time_fg,
+                               ("Consolas", 13), anchor="e")
         self.time_lbl.pack(side=tk.RIGHT, padx=(0, 4))
 
-        self.done_lbl = ctk.CTkLabel(right, text="[已完成]" if w.completed else "",
-                                     fg_color="transparent", text_color=C["green"],
-                                     font=(FONT, 11), height=_CARD_LABEL_H)
+        self.done_lbl = plabel(right, "[已完成]" if w.completed else "",
+                               C["green"], (FONT, 11))
         self.done_lbl.pack(side=tk.RIGHT, padx=(0, 4))
 
-        self.rem_lbl = ctk.CTkLabel(right, text="", fg_color="transparent",
-                                    text_color=C["orange"], font=(FONT, 11),
-                                    height=_CARD_LABEL_H)
+        self.rem_lbl = plabel(right, "", C["orange"], (FONT, 11))
         self.rem_lbl.pack(side=tk.RIGHT, padx=(0, 4))
+        self._rem_txt = ""
 
         # ── 点击 / 悬停 / 拖拽 ──
         self._selected = False
+        self._dragging = False
+        self._fg = C["surface"]     # 当前底色（CTk 同值 configure 也会重绘，需守卫）
+        self._rv = None             # 已渲染的数据版本 (widget, _version, starred, visible)
         self._drag_start = None    # 拖拽起点 (x_root, y_root)
         self._drag_active = False  # 是否已进入拖拽
         self.bind("<Button-1>", self._on_click)
@@ -136,6 +138,11 @@ class TodoCard(ctk.CTkFrame):
             child.bind("<Button-3>", self._on_right_click)
             child.bind("<B1-Motion>", self._on_drag_motion)
             child.bind("<ButtonRelease-1>", self._on_drag_release)
+
+        # 构造即最终态：标签已按当前数据内联初始化，标记版本并补齐 ⏰ 标签，
+        # 使后续 refresh() 在数据未变时可被版本守卫整体跳过
+        self._rv = (w, w._version, w.starred, w.is_visible())
+        self.update_reminder()
 
     @staticmethod
     def _all_children(widget):
@@ -165,8 +172,33 @@ class TodoCard(ctk.CTkFrame):
         return C["border"]
 
     def set_selected(self, selected):
+        if self._selected == selected:
+            return
         self._selected = selected
-        self.configure(fg_color=C["blue_light"] if selected else C["surface"])
+        self._apply_fg(C["blue_light"] if selected else C["surface"])
+
+    def _apply_fg(self, color):
+        """设置卡片底色，同值跳过（CTk configure 同值也触发整卡重绘）。
+        纯 tk 子控件不透明，底色需一并同步。"""
+        if self._fg == color:
+            return
+        self._fg = color
+        self.configure(fg_color=color)
+        for w in getattr(self, "_plain", []):
+            try:
+                w.configure(bg=color)
+            except tk.TclError:
+                pass
+
+    def set_dragging(self, dragging):
+        """拖拽中的视觉反馈（外框高亮，不打扰内部配色）"""
+        if self._dragging == dragging:
+            return
+        self._dragging = dragging
+        if dragging:
+            self.configure(border_width=2, border_color=C["blue"])
+        else:
+            self.configure(border_width=0, border_color=C["surface"])
 
     def _on_click(self, event):
         # 记录拖拽起点；移动超过阈值才算拖拽，否则视为普通点击
@@ -196,30 +228,6 @@ class TodoCard(ctk.CTkFrame):
         self._drag_start = None
         self._drag_active = False
 
-    def set_dragging(self, dragging):
-        """拖拽中的视觉反馈（外框高亮，不打扰内部配色）"""
-        if dragging:
-            self.configure(border_width=2, border_color=C["blue"])
-        else:
-            self.configure(border_width=0, border_color=C["surface"])
-
-    def update_reminder(self):
-        """刷新 ⏰ 倒计时标签（由主窗口 tick 调用）"""
-        if not hasattr(self, "rem_lbl"):
-            return
-        w = self.todo_widget
-        if not w.target_seconds:
-            self.rem_lbl.configure(text="")
-            return
-        if w.completed:
-            txt = "⏰"
-        elif w.running:
-            left = w.target_seconds - w.get_live_elapsed()
-            txt = "⏰超时" if left <= 0 else f"⏰{fmt_time(left)}"
-        else:
-            txt = f"⏰{fmt_time(w.target_seconds)}"
-        self.rem_lbl.configure(text=txt)
-
     def _on_double_click(self, event):
         if hasattr(self, "callback_double"):
             self.callback_double(self.todo_widget.todo_id)
@@ -231,46 +239,85 @@ class TodoCard(ctk.CTkFrame):
     def _on_enter(self, event):
         if event.widget is not self or self._selected or self._drag_active:
             return
-        self.configure(fg_color=C["bg"])
+        self._apply_fg(C["bg"])
 
     def _on_leave(self, event):
         if event.widget is not self or self._selected or self._drag_active:
             return
-        self.configure(fg_color=C["surface"])
+        self._apply_fg(C["surface"])
 
     def set_sequence(self, seq):
+        if self._seq == seq:
+            return
         self._seq = seq
         self.seq_lbl.configure(text=_circled(seq) if seq > 0 else "")
 
     def set_show_date(self, show):
         """切换日期标签显隐（跨日项）；跨视图复用卡片时由主窗口调用。"""
         w = self.todo_widget
-        self._show_date = show
         w_date = getattr(w, "_date", "") if hasattr(w, "_date") else ""
-        self.date_lbl.configure(
-            text=f"[{fmt_date_short(w_date)}]" if show and w_date else "")
+        txt = f"[{fmt_date_short(w_date)}]" if show and w_date else ""
+        if self._show_date == show and self.date_lbl.cget("text") == txt:
+            return
+        self._show_date = show
+        self.date_lbl.configure(text=txt)
+
+    def update_reminder(self):
+        """刷新 ⏰ 倒计时标签（由主窗口 tick 调用，每 200ms 一次，需同值守卫）"""
+        w = self.todo_widget
+        if not w.target_seconds:
+            txt = ""
+        elif w.completed:
+            txt = "⏰"
+        elif w.running:
+            left = w.target_seconds - w.get_live_elapsed()
+            txt = "⏰超时" if left <= 0 else f"⏰{fmt_time(left)}"
+        else:
+            txt = f"⏰{fmt_time(w.target_seconds)}"
+        if txt == self._rem_txt:
+            return
+        self._rem_txt = txt
+        self.rem_lbl.configure(text=txt)
+
+    def set_time_text(self, txt):
+        """运行中卡片的时间实时刷新（主窗口 tick 调用），同值跳过"""
+        if txt == self._time_txt:
+            return
+        self._time_txt = txt
+        self.time_lbl.configure(text=txt)
 
     def refresh(self):
-        """根据 todo_widget 当前状态刷新显示（跨视图复用时调用以同步全部标签）。"""
+        """根据 todo_widget 当前状态刷新显示（跨视图复用时调用）。
+
+        数据版本未变则整体跳过 —— 视图切换会复用大量卡片，全部无差别
+        configure 是切换卡顿的根源之一。
+        """
         w = self.todo_widget
-        self.accent.configure(fg_color=self._accent_color(w))
+        # starred/visible 走直接赋值不递增 _version，一并纳入守卫键
+        rv = (w, w._version, w.starred, w.is_visible())
+        if self._rv == rv:
+            return
+        self._rv = rv
+        self._apply_fg(C["blue_light"] if self._selected else C["surface"])
+        self.accent.configure(bg=self._accent_color(w))
 
         self.seq_lbl.configure(text=_circled(self._seq) if self._seq > 0 else "")
 
         star_text = "★" if w.starred else ""
         star_fg = C["orange"] if w.starred else C["text_ter"]
-        self.star_lbl.configure(text=star_text, text_color=star_fg)
+        self.star_lbl.configure(text=star_text, fg=star_fg)
 
         status_text, status_fg = self._status_icon(w)
-        self.status_lbl.configure(text=status_text, text_color=status_fg)
+        self.status_lbl.configure(text=status_text, fg=status_fg)
 
         is_hidden = not w.is_visible()
         text_fg = C["text_ter"] if is_hidden else C["text"]
-        self.text_lbl.configure(text=w.text, text_color=text_fg)
+        self.text_lbl.configure(text=w.text, fg=text_fg)
 
         time_fg = C["strikethrough"] if w.completed else (
             C["text_ter"] if is_hidden else C["text"])
-        self.time_lbl.configure(text=fmt_time(w.elapsed), text_color=time_fg)
+        self._time_txt = fmt_time(w.elapsed)
+        self.time_lbl.configure(text=self._time_txt, fg=time_fg)
 
         self.hidden_lbl.configure(text="◌" if is_hidden else "")
         self.done_lbl.configure(text="[已完成]" if w.completed else "")
@@ -278,31 +325,34 @@ class TodoCard(ctk.CTkFrame):
         self.update_reminder()
 
 
-class SectionHeader(ctk.CTkFrame):
-    """列表中的区块标题 — 不可点击"""
+class SectionHeader(tk.Frame):
+    """列表中的区块标题 — 不可点击。
+
+    纯 tk 控件：坐在恒定底色 C["bg"] 上，文字渲染与 CTk 无差异，
+    但重挂/重建成本近乎为零（每次刷新都要重排的装饰必须轻）。
+    """
 
     def __init__(self, parent, text, compact=False, **kw):
-        super().__init__(parent, fg_color="transparent", corner_radius=0, **kw)
+        bg = C["bg"]
+        super().__init__(parent, bg=bg, **kw)
         if compact:
-            lbl = ctk.CTkLabel(self, text=text, fg_color="transparent",
-                               text_color=C["text_ter"], font=(FONT, 9), anchor="w")
-            lbl.pack(fill=tk.X, padx=26)
-            ctk.CTkFrame(self, fg_color="transparent", height=1).pack(fill=tk.X)
+            tk.Label(self, text=text, bg=bg, fg=C["text_ter"],
+                     font=(FONT, 9), anchor="w").pack(fill=tk.X, padx=26)
+            tk.Frame(self, bg=bg, height=1).pack(fill=tk.X)
         else:
-            ctk.CTkFrame(self, fg_color="transparent", height=4).pack(fill=tk.X)
-            lbl = ctk.CTkLabel(self, text=text, fg_color="transparent",
-                               text_color=C["text_sec"], font=(FONT, 10, "bold"), anchor="w")
-            lbl.pack(fill=tk.X, padx=18)
-            ctk.CTkFrame(self, fg_color="transparent", height=2).pack(fill=tk.X)
+            tk.Frame(self, bg=bg, height=4).pack(fill=tk.X)
+            tk.Label(self, text=text, bg=bg, fg=C["text_sec"],
+                     font=(FONT, 10, "bold"), anchor="w").pack(fill=tk.X, padx=18)
+            tk.Frame(self, bg=bg, height=2).pack(fill=tk.X)
 
 
-class EmptyHint(ctk.CTkFrame):
-    """空列表提示"""
+class EmptyHint(tk.Frame):
+    """空列表提示（纯 tk，理由同 SectionHeader）"""
 
     def __init__(self, parent, text="暂无待办", **kw):
-        super().__init__(parent, fg_color="transparent", corner_radius=0, **kw)
-        ctk.CTkFrame(self, fg_color="transparent", height=12).pack(fill=tk.X)
-        lbl = ctk.CTkLabel(self, text=text, fg_color="transparent",
-                           text_color=C["text_ter"], font=(FONT, 10))
-        lbl.pack()
-        ctk.CTkFrame(self, fg_color="transparent", height=12).pack(fill=tk.X)
+        bg = C["bg"]
+        super().__init__(parent, bg=bg, **kw)
+        tk.Frame(self, bg=bg, height=12).pack(fill=tk.X)
+        tk.Label(self, text=text, bg=bg, fg=C["text_ter"],
+                 font=(FONT, 10)).pack()
+        tk.Frame(self, bg=bg, height=12).pack(fill=tk.X)

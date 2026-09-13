@@ -19,6 +19,7 @@ class TodoWidget:
         self._date = date
         self._in_panel = False
         self._callbacks = []  # observer list, 替代单一 _change_callback
+        self._version = 0     # 渲染版本号：每次状态变更 +1，UI 层据此跳过无变化重绘
         self.target_seconds = target_seconds  # 目标时长提醒，None=无
         self.reminded = False                 # 是否已触发提醒（防重复）
 
@@ -103,6 +104,7 @@ class TodoWidget:
             self._callbacks.remove(cb)
 
     def _fire_change(self):
+        self._version += 1
         for cb in self._callbacks:
             cb()
 

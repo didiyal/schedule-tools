@@ -42,6 +42,12 @@ def _icon_btn(parent, text, cmd, tip, danger=False):
 
 
 class MainApp:
+    # 流式渲染参数：切换视图时首屏同步出图，其余分帧补齐（防全量重排冻结 UI）
+    RENDER_FIRST_BATCH = 14   # 首屏同步渲染条目数
+    RENDER_BUDGET = 0.08      # 每帧渲染时间预算（秒）
+    PREWARM_DELAY = 1500      # 启动后延迟多久开始预热（ms）
+    PREWARM_INTERVAL = 30     # 预热节拍：每张卡片映射一拍（ms）
+
     def __init__(self):
         self.root = ctk.CTk()
         self.root.title("待办计时器")
@@ -58,6 +64,12 @@ class MainApp:
         self.filter_state = "active"
         self._cards: list = []  # TodoCard | SectionHeader | EmptyHint
         self._card_cache: dict = {}  # todo_id -> TodoCard（跨视图复用，避免重建）
+        self._deco_cache: dict = {}  # (kind, text) -> SectionHeader | EmptyHint
+        self._last_plan = None       # 上次渲染计划；相同则整场刷新跳过
+        self._packed_seq: list = []  # [(key, widget)] 已 pack 的渲染序列（含装饰）
+        self._render_seq = 0         # 流式渲染令牌：新渲染使未完成的旧流失效
+        self._stream_after_id = None
+        self._scrollregion_after_id = None
         self._selected_tid: str | None = None
         self._search_term = ""
         self._undo_action = None
@@ -76,6 +88,7 @@ class MainApp:
         set_autostart(self._autostart_intent)
         self._loading = False
         self._refresh_view()
+        self._prewarm_cards()
 
         # 系统托盘：关闭窗口=最小化到托盘，真正退出走托盘菜单
         self._tray = TrayController(
@@ -267,9 +280,7 @@ class MainApp:
 
         # 让 card_frame 宽度跟随 canvas
         self.canvas.bind("<Configure>", self._on_canvas_configure)
-        self.card_frame.bind("<Configure>",
-                             lambda e: self.canvas.configure(
-                                 scrollregion=self.canvas.bbox("all")))
+        self.card_frame.bind("<Configure>", self._on_card_frame_configure)
 
         # 鼠标滚轮 — 绑定到窗口级(bind_all)：停在卡片(子控件)上时事件发给
         # 子控件而非 Canvas，Canvas 上的绑定不会触发。改用 bind_all 后任意位置
@@ -290,6 +301,21 @@ class MainApp:
 
     def _on_canvas_configure(self, event):
         self.canvas.itemconfig(self.card_frame_id, width=event.width)
+
+    def _on_card_frame_configure(self, _event=None):
+        """card_frame 尺寸变化 → 合并刷新滚动区域。
+
+        每张卡片增删都会触发本事件；scrollregion 逐次更新会迫使 Canvas
+        整体重绘，近百张卡片的批量重排因此放大成数秒的原生开销（实测 7 倍）。
+        50ms 合并后，一次批量重排只重绘一两次。"""
+        if self._scrollregion_after_id:
+            return
+        self._scrollregion_after_id = self.canvas.after(
+            50, self._apply_scrollregion)
+
+    def _apply_scrollregion(self):
+        self._scrollregion_after_id = None
+        self.canvas.configure(scrollregion=self.canvas.bbox("all"))
 
     def _on_mousewheel(self, event):
         # 仅当光标位于主窗口内时滚动主列表，不串扰计时面板
@@ -470,7 +496,7 @@ class MainApp:
             if isinstance(card, TodoCard):
                 w = card.todo_widget
                 if w.running:
-                    card.time_lbl.configure(text=fmt_time(w.get_live_elapsed()))
+                    card.set_time_text(fmt_time(w.get_live_elapsed()))
                 # 暂停/已完成的卡片也刷新 ⏰ 标签（避免显示过期倒计时）
                 if hasattr(card, "update_reminder"):
                     card.update_reminder()
@@ -489,40 +515,234 @@ class MainApp:
 
     # ── 视图渲染 ────────────────────────────────────────
     def _refresh_view(self):
+        """渲染当前视图。先纯计算渲染计划，与上次一致则整体跳过 ——
+        一次状态变更会连续触发 2~3 次本方法（observer 双订阅 + 操作后显式调用），
+        计划比对使重复调用近乎零开销。"""
+        plan = self._compute_plan()
+        if plan == self._last_plan:
+            return
+        entries = plan[5]
+        self._last_plan = plan
+
+        # 选中保留：目标任务仍渲染于当前视图则保留选中，否则清空。
+        # 修复：切视图后直接点 ✓ / 右键菜单时因选中丢失而静默无操作。
+        card_tids = {e[1] for e in entries if e[0] == "card"}
+        if self._selected_tid not in card_tids:
+            self._selected_tid = None
+
+        self._materialize(entries)
+
         self.date_lbl.configure(text=fmt_date_cn(self.current_date))
-
         titles = {"all": "全部待办", "active": "未完成", "completed": "已完成"}
-        self.list_title_lbl.configure(text=titles.get(self.filter_state, "待办列表"))
+        self.list_title_lbl.configure(
+            text=titles.get(self.filter_state, "待办列表"))
+        self.day_total_lbl.configure(text=plan[6])
+        self.stat_lbl.configure(text=plan[7])
 
-        # 复用卡片：仅隐藏缓存卡片，销毁装饰(分组标题/空提示)；清理已删除项的缓存
-        cached = set(self._card_cache.values())
-        for c in self._card_cache.values():
-            c.pack_forget()
-        for child in list(self.card_frame.winfo_children()):
-            if child not in cached:
-                child.destroy()
-        self._cards = []
-        self._selected_tid = None
+    def _materialize(self, entries):
+        """把渲染计划落到控件上。
+
+        重排一张 CTk 卡片（卸下再挂回）在原生 Tk 侧开销 ≈15ms，近百张
+        全量重排是切换卡顿的根源，分三种路径规避：
+        - 卡片序列不变（改文字/★/完成态等）→ 只刷新内容，一个控件都不动；
+        - 纯增/纯删（完成、取消、搜索过滤、新增）→ 只增删目标卡片并重挂
+          轻量装饰，其余卡片原地不动；
+        - 其余（切换视图、排序变更）→ 全量重排，首屏同步渲染、剩余按时间
+          预算分帧补齐，UI 不冻结。
+        """
+        self._render_seq += 1
+        token = self._render_seq
+        stream_interrupted = self._stream_after_id is not None
+        self._cancel_stream()
+
+        new_card_keys = [("card", e[1]) for e in entries if e[0] == "card"]
+        old_card_keys = [k for k, _ in self._packed_seq if k[0] == "card"]
+        new_deco_keys = {(e[0], e[1]) for e in entries if e[0] != "card"}
+        old_deco_keys = {k for k, _ in self._packed_seq if k[0] != "card"}
+        decos_changed = old_deco_keys != new_deco_keys
+
+        if stream_interrupted:
+            mode = "full"
+        elif old_card_keys == new_card_keys:
+            mode = "same"
+        elif (len(old_card_keys) > len(new_card_keys)
+                and self._is_subsequence(new_card_keys, old_card_keys)):
+            mode = "delete"
+        elif (len(new_card_keys) > len(old_card_keys)
+                and self._is_subsequence(old_card_keys, new_card_keys)):
+            mode = "insert"
+        else:
+            mode = "full"
+
+        if mode == "full":
+            for _, w in self._packed_seq:
+                w.pack_forget()
+            self._packed_seq = []
+            self._cards = []
+            self._gc_caches(new_deco_keys)
+            # 清理可能游离在 card_frame 里的散件（防御，正常不存在）
+            card_vals = set(self._card_cache.values())
+            deco_vals = set(self._deco_cache.values())
+            packed_ids = {id(w) for _, w in self._packed_seq}
+            for child in list(self.card_frame.winfo_children()):
+                if (id(child) not in packed_ids and child not in card_vals
+                        and child not in deco_vals):
+                    child.destroy()
+            self._stream_render(entries, token)
+            return
+
+        # ── 原地更新 ──
+        # 装饰（纯 tk，成本≈0）先全部卸下，随后按序重挂；废弃的销毁
+        for k, w in self._packed_seq:
+            if k[0] != "card":
+                w.pack_forget()
+        self._gc_caches(new_deco_keys)
+
+        old_cards = [(k, w) for k, w in self._packed_seq if k[0] == "card"]
+        card_widget_by_key = dict(old_cards)
+        if mode == "delete":
+            keep = set(new_card_keys)
+            for k, w in old_cards:
+                if k not in keep:
+                    w.pack_forget()
+        elif mode == "insert":
+            successor = None
+            for e in reversed([e for e in entries if e[0] == "card"]):
+                key = ("card", e[1])
+                if key in card_widget_by_key:
+                    successor = card_widget_by_key[key]
+                else:
+                    w = self._obtain_card(self.todos[e[1]], e[2], e[3])
+                    if successor is not None:
+                        w.pack(fill=tk.X, pady=(0, 4), before=successor)
+                    else:
+                        w.pack(fill=tk.X, pady=(0, 4))
+                    card_widget_by_key[key] = w
+                    successor = w
+
+        if mode == "same" and not decos_changed:
+            # 卡片序列与装饰都没变，但数据可能已变（文字/★/完成态…）
+            # → 逐卡同步内容；_sync_card 内部全带守卫，仅变化的卡片重绘
+            for (k, w), e in zip(self._packed_seq, entries):
+                if k[0] == "card":
+                    self._sync_card(w, e)
+            return
+
+        # 重挂装饰：以已就位卡片为锚点（before/after）插入，卡片保持不动
+        new_seq = []
+        prev = None
+        first_card_w = (card_widget_by_key[new_card_keys[0]]
+                        if new_card_keys else None)
+        for e in entries:
+            if e[0] == "card":
+                w = card_widget_by_key[("card", e[1])]
+                self._sync_card(w, e)
+                new_seq.append((("card", e[1]), w))
+            else:
+                deco = self._obtain_deco(e)
+                if prev is None and first_card_w is not None:
+                    deco.pack(fill=tk.X, before=first_card_w)
+                elif prev is None:
+                    deco.pack(fill=tk.X)
+                else:
+                    deco.pack(fill=tk.X, after=prev)
+                prev = deco
+                new_seq.append(((e[0], e[1]), deco))
+            prev = new_seq[-1][1]
+        self._packed_seq = new_seq
+        self._cards = [w for _, w in new_seq]
+
+    def _sync_card(self, card, e):
+        """原地路径的卡片内容同步：所有 set_* 均有同值守卫，仅真正变化的卡片重绘"""
+        card.todo_widget = self.todos[e[1]]
+        card.set_sequence(e[2])
+        card.set_show_date(e[3])
+        card.set_selected(e[1] == self._selected_tid)
+        card.set_dragging(False)
+        card.refresh()
+
+    def _stream_render(self, entries, token):
+        """全量重排的流式渲染：首屏同步出图，其余分帧补齐，期间计划变更即作废"""
+        for e in entries[:self.RENDER_FIRST_BATCH]:
+            self._pack_entry(e)
+        rest = entries[self.RENDER_FIRST_BATCH:]
+        if not rest:
+            self._stream_after_id = None
+            return
+
+        def step(remaining):
+            if token != self._render_seq:
+                return
+            deadline = time.perf_counter() + self.RENDER_BUDGET
+            i = 0
+            while i < len(remaining) and (i == 0 or time.perf_counter() < deadline):
+                self._pack_entry(remaining[i])
+                i += 1
+            remaining = remaining[i:]
+            if remaining:
+                self._stream_after_id = self.root.after(16, step, remaining)
+            else:
+                self._stream_after_id = None
+
+        self._stream_after_id = self.root.after(16, step, rest)
+
+    def _pack_entry(self, e):
+        if e[0] == "card":
+            card = self._obtain_card(self.todos[e[1]], e[2], e[3])
+            card.pack(fill=tk.X, pady=(0, 4))
+            self._packed_seq.append((("card", e[1]), card))
+            self._cards.append(card)
+        else:
+            deco = self._obtain_deco(e)
+            deco.pack(fill=tk.X)
+            self._packed_seq.append(((e[0], e[1]), deco))
+            self._cards.append(deco)
+
+    def _cancel_stream(self):
+        if self._stream_after_id is not None:
+            self.root.after_cancel(self._stream_after_id)
+            self._stream_after_id = None
+
+    def _gc_caches(self, new_deco_keys):
+        """清理已删除待办的卡片缓存与不再使用的装饰缓存"""
         for tid in list(self._card_cache.keys()):
             if tid not in self.todos:
                 self._card_cache[tid].destroy()
                 del self._card_cache[tid]
+        for key in list(self._deco_cache.keys()):
+            if key not in new_deco_keys:
+                self._deco_cache.pop(key).destroy()
 
-        # 搜索过滤
+    @staticmethod
+    def _is_subsequence(needles, haystack):
+        """needles 能否按序嵌入 haystack（识别纯增/纯删的渲染计划）"""
+        it = iter(haystack)
+        return all(any(x == y for y in it) for x in needles)
+
+    def _compute_plan(self):
+        """纯计算当前视图的渲染计划，不触碰任何控件。
+
+        返回元组 (filter_state, current_date, search, n_todos, fingerprint,
+        entries, day_total_text, stat_text)。entries 为不可变序列：
+        ("hdr"|"sub"|"empty", 文本) 与 ("card", todo_id, 序号, 显示日期)。
+        fingerprint 覆盖所有影响渲染的数据（含不走 _fire_change 的
+        starred/_order 直接赋值），任一变化都会使计划失效。
+        """
         st = self._search_term.lower()
 
         def _matches(w):
             return not st or st in w.text.lower()
 
         today_str = self.current_date
+        entries = []
+        day_total_text = ""
+        order_key = lambda w: (not getattr(w, "starred", False),
+                               getattr(w, "_order", 0))
 
         if self.filter_state == "active":
-            today_items = []
-            cross_items = []
+            today_items, cross_items = [], []
             for w in self.todos.values():
-                if w.completed:
-                    continue
-                if not _matches(w):
+                if w.completed or not _matches(w):
                     continue
                 w_date = getattr(w, "_date", get_today_str())
                 if w_date == today_str:
@@ -530,150 +750,140 @@ class MainApp:
                 elif w_date < today_str:
                     cross_items.append(w)
 
-            today_items.sort(key=lambda w: (
-                not getattr(w, "starred", False), getattr(w, "_order", 0)))
-            cross_items.sort(key=lambda w: (
-                not getattr(w, "starred", False), getattr(w, "_order", 0)))
+            today_items.sort(key=order_key)
+            cross_items.sort(key=order_key)
 
             day_total = 0
-
-            # ── 今日待办 ──
             if today_items:
-                hdr = SectionHeader(self.card_frame, "▎今日待办")
-                hdr.pack(fill=tk.X)
-                self._cards.append(hdr)
-
-            seq = 0
-            for w in today_items:
-                seq += 1
+                entries.append(("hdr", "▎今日待办"))
+            for seq, w in enumerate(today_items, 1):
                 day_total += w.elapsed
-                card = self._obtain_card(w, seq, show_date=False)
-                card.pack(fill=tk.X, pady=(0, 4))
-                self._cards.append(card)
+                entries.append(("card", w.todo_id, seq, False))
 
-            # ── 跨日未完成 ──
             if cross_items:
-                hdr = SectionHeader(self.card_frame,
-                                    f"▎跨日未完成 ({len(cross_items)}项)")
-                hdr.pack(fill=tk.X)
-                self._cards.append(hdr)
-
-                # 按日期分组
+                entries.append(("hdr", f"▎跨日未完成 ({len(cross_items)}项)"))
                 groups = {}
                 for w in cross_items:
-                    dk = getattr(w, "_date", "")
-                    groups.setdefault(dk, []).append(w)
-
+                    groups.setdefault(getattr(w, "_date", ""), []).append(w)
+                single = len(groups) == 1
                 for dk in sorted(groups.keys()):
                     group_items = groups[dk]
-                    if len(groups) > 1:
-                        sub = SectionHeader(self.card_frame,
-                                            f"  {fmt_date_cn(dk)} · {len(group_items)}项",
-                                            compact=True)
-                        sub.pack(fill=tk.X)
-                        self._cards.append(sub)
+                    if not single:
+                        entries.append(
+                            ("sub", f"  {fmt_date_cn(dk)} · {len(group_items)}项"))
+                    for seq, w in enumerate(group_items, 1):
+                        entries.append(("card", w.todo_id, seq, single))
 
-                    seq = 0
-                    for w in group_items:
-                        seq += 1
-                        card = self._obtain_card(w, seq, show_date=(len(groups) == 1))
-                        card.pack(fill=tk.X, pady=(0, 4))
-                        self._cards.append(card)
-
-            # 统一空提示
             if not today_items and not cross_items:
-                hint = EmptyHint(self.card_frame, "暂无待办")
-                hint.pack(fill=tk.X)
-                self._cards.append(hint)
-
-            active_today = len(today_items)
-            self.day_total_lbl.configure(
-                text=f"今日合计 {fmt_time(day_total)}  ·  {active_today} 项")
+                entries.append(("empty", "暂无待办"))
+            day_total_text = f"今日合计 {fmt_time(day_total)}  ·  {len(today_items)} 项"
 
         elif self.filter_state == "completed":
-            # 已完成视图：跨日期显示所有完成项，按日期分组
+            # 已完成视图：所有完成项按日期倒序分组（跨日完成归到完成当天）
             all_completed = [w for w in self.todos.values()
-                           if w.completed and _matches(w)]
+                             if w.completed and _matches(w)]
             all_completed.sort(key=lambda w: (
-                getattr(w, "_date", ""), not getattr(w, "starred", False), getattr(w, "_order", 0)))
-
+                getattr(w, "_date", ""), not getattr(w, "starred", False),
+                getattr(w, "_order", 0)))
             if all_completed:
                 groups = {}
                 for w in all_completed:
-                    dk = getattr(w, "_date", get_today_str())
-                    groups.setdefault(dk, []).append(w)
-
+                    groups.setdefault(getattr(w, "_date", get_today_str()),
+                                      []).append(w)
                 for dk in sorted(groups.keys(), reverse=True):
                     group_items = groups[dk]
-                    hdr = SectionHeader(self.card_frame,
-                                       f"▎{fmt_date_cn(dk)} · {len(group_items)}项")
-                    hdr.pack(fill=tk.X)
-                    self._cards.append(hdr)
-
-                    seq = 0
-                    for w in group_items:
-                        seq += 1
-                        card = self._obtain_card(w, seq, show_date=False)
-                        card.pack(fill=tk.X, pady=(0, 4))
-                        self._cards.append(card)
+                    entries.append(
+                        ("hdr", f"▎{fmt_date_cn(dk)} · {len(group_items)}项"))
+                    for seq, w in enumerate(group_items, 1):
+                        entries.append(("card", w.todo_id, seq, False))
             else:
-                hint = EmptyHint(self.card_frame, "暂无已完成待办")
-                hint.pack(fill=tk.X)
-                self._cards.append(hint)
-
-            done_count = len(all_completed)
-            self.day_total_lbl.configure(text=f"已完成 {done_count} 项")
+                entries.append(("empty", "暂无已完成待办"))
+            day_total_text = f"已完成 {len(all_completed)} 项"
 
         else:
-            # 全部视图：跨日期显示所有待办，按日期分组
+            # 全部视图：所有待办按日期倒序分组
             all_todos = [w for w in self.todos.values() if _matches(w)]
             all_todos.sort(key=lambda w: (
                 getattr(w, "_date", ""), not getattr(w, "starred", False),
                 w.completed, getattr(w, "_order", 0)))
-
             if all_todos:
                 groups = {}
                 for w in all_todos:
-                    dk = getattr(w, "_date", get_today_str())
-                    groups.setdefault(dk, []).append(w)
-
+                    groups.setdefault(getattr(w, "_date", get_today_str()),
+                                      []).append(w)
                 day_total = 0
+                today = get_today_str()
                 for dk in sorted(groups.keys(), reverse=True):
                     group_items = groups[dk]
-                    is_today = dk == get_today_str()
-                    label = f"▎今日 · {len(group_items)}项" if is_today else f"▎{fmt_date_cn(dk)} · {len(group_items)}项"
-                    hdr = SectionHeader(self.card_frame, label)
-                    hdr.pack(fill=tk.X)
-                    self._cards.append(hdr)
-
-                    seq = 0
-                    for w in group_items:
-                        seq += 1
+                    label = (f"▎今日 · {len(group_items)}项" if dk == today
+                             else f"▎{fmt_date_cn(dk)} · {len(group_items)}项")
+                    entries.append(("hdr", label))
+                    for seq, w in enumerate(group_items, 1):
                         if not w.completed:
                             day_total += w.elapsed
-                        card = self._obtain_card(w, seq, show_date=False)
-                        card.pack(fill=tk.X, pady=(0, 4))
-                        self._cards.append(card)
+                        entries.append(("card", w.todo_id, seq, False))
             else:
-                hint = EmptyHint(self.card_frame, "暂无待办")
-                hint.pack(fill=tk.X)
-                self._cards.append(hint)
-
+                entries.append(("empty", "暂无待办"))
             active_count = sum(1 for w in all_todos if not w.completed)
-            self.day_total_lbl.configure(
-                text=f"合计 {fmt_time(day_total)}  ·  {active_count} 项")
+            day_total_text = f"合计 {fmt_time(day_total)}  ·  {active_count} 项"
 
-        # 全局统计
         total = len(self.todos)
         active = sum(1 for w in self.todos.values() if not w.completed)
-        done = sum(1 for w in self.todos.values() if w.completed)
+        done = total - active
         running = sum(1 for w in self.todos.values() if w.running)
-        self.stat_lbl.configure(
-            text=f"全部 {total} 项 · 未完成 {active} · 已完成 {done} · 运行中 {running}")
+        stat_text = (f"全部 {total} 项 · 未完成 {active} · 已完成 {done}"
+                     f" · 运行中 {running}")
+
+        fp = tuple((w, w._version, w.starred, w._order, w.completed,
+                    w.is_visible(), getattr(w, "_date", ""), w.elapsed)
+                   for w in self.todos.values())
+        return (self.filter_state, self.current_date, self._search_term,
+                total, fp, tuple(entries), day_total_text, stat_text)
+
+    def _obtain_deco(self, entry):
+        """从缓存取或新建分组标题/空提示（跨刷新复用，避免反复重建 CTk 控件）"""
+        kind, text = entry[0], entry[1]
+        key = (kind, text)
+        deco = self._deco_cache.get(key)
+        if deco is None:
+            if kind == "empty":
+                deco = EmptyHint(self.card_frame, text)
+            else:
+                deco = SectionHeader(self.card_frame, text,
+                                     compact=(kind == "sub"))
+            self._deco_cache[key] = deco
+        return deco
+
+    def _prewarm_cards(self):
+        """启动后空闲时段预热卡片缓存。
+
+        卡片的首次映射（canvas 初始化 + 尺寸协商）远贵于重映射，是首次切换
+        视图卡顿的主因。这里逐张 place 到可视区外完成首次映射，下一拍再卸下，
+        把这笔一次性成本摊在启动空闲期；此后切换视图全是热路径。"""
+        pending = [w for w in self.todos.values()
+                   if w.todo_id not in self._card_cache]
+        mapped: list = []
+
+        def step():
+            for c in mapped:
+                c.place_forget()
+            mapped.clear()
+            if not pending:
+                return
+            w = pending.pop(0)
+            tid = w.todo_id
+            if tid in self.todos and tid not in self._card_cache:
+                card = self._obtain_card(w, seq=0, show_date=False)
+                card.place(x=-20000, y=0)   # 映射以触发首次绘制, 不可见
+                mapped.append(card)
+            self._prewarm_after_id = self.root.after(self.PREWARM_INTERVAL, step)
+
+        self._prewarm_after_id = self.root.after(self.PREWARM_DELAY, step)
 
     def _obtain_card(self, w, seq, show_date):
         """从缓存取或新建卡片。跨视图复用，避免每次切换都重建全部控件（CTk 控件
-        构造较慢，是切换卡顿的根因）。复用时仅重新 pack/排序并刷新状态。"""
+        构造较慢，是切换卡顿的根因）。复用时仅重新 pack/排序；set_*/refresh
+        内部均有同值守卫，数据未变化的卡片零重绘。"""
         tid = w.todo_id
         card = self._card_cache.get(tid)
         if card is None:
@@ -686,12 +896,7 @@ class MainApp:
             card.callback_drag_drop = self._on_drag_drop
             self._card_cache[tid] = card
         else:
-            card.todo_widget = w
-            card.set_sequence(seq)
-            card.set_show_date(show_date)
-            card.set_selected(False)
-            card.set_dragging(False)
-            card.refresh()
+            self._sync_card(card, ("card", tid, seq, show_date))
         return card
 
     # ── 卡片交互回调 ────────────────────────────────────
