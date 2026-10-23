@@ -415,6 +415,12 @@ public partial class MainViewModel : ObservableObject
 
     // ── 拖拽落点（解析=纯函数 DropResolver；应用=ExecuteDrop）──
 
+    public TodoItem? GetTodo(string id) => _byId.TryGetValue(id, out var t) ? t : null;
+
+    /// <summary>被拖任务身后跟着的后代数（整枝体积角标）。</summary>
+    public int SubtreeExtraCount(string id)
+        => _byId.ContainsKey(id) ? TaskTree.Descendants(ParentMap(), id).Count : 0;
+
     public DropAction? ResolveDrop(string dragId, string targetId, double yRatio)
         => DropResolver.Resolve(ParentMap(), _byId, dragId, targetId, yRatio);
 

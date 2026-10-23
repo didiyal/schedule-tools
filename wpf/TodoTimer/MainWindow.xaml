@@ -85,7 +85,8 @@
                  PreviewMouseMove="List_PreviewMouseMove"
                  DragOver="List_DragOver"
                  DragLeave="List_DragLeave"
-                 Drop="List_Drop">
+                 Drop="List_Drop"
+                 QueryContinueDrag="List_QueryContinueDrag">
             <ListBox.InputBindings>
                 <KeyBinding Key="Tab" Command="{Binding IndentSelectedCommand}"/>
                 <KeyBinding Key="Tab" Modifiers="Shift" Command="{Binding OutdentSelectedCommand}"/>

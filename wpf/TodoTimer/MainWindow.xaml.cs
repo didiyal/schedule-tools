@@ -72,7 +72,9 @@ public partial class MainWindow : Window
         var pt = e.GetPosition(List);
         if (Math.Abs(pt.X - _downPt.X) < 10 && Math.Abs(pt.Y - _downPt.Y) < 10) return;
         _dragId = _downRowId;
+        ShowGhost(_dragId);
         DragDrop.DoDragDrop(List, new DataObject(DataFormats.StringFormat, _dragId), DragDropEffects.Move);
+        _ghost?.Hide();
         _dragId = null;
         _pendingDrop = null;
         Adorner()?.Clear();
@@ -139,6 +141,21 @@ public partial class MainWindow : Window
                     new Rect(pos.X, pos.Y, lbi.ActualWidth, h));
         }
         return (null, 0, default);
+    }
+
+    private DragGhostWindow? _ghost;
+
+    private void ShowGhost(string id)
+    {
+        if (_vm.GetTodo(id) is not { } t) return;
+        _ghost ??= new DragGhostWindow();
+        _ghost.Show(t.Text, _vm.SubtreeExtraCount(id));
+    }
+
+    private void List_QueryContinueDrag(object sender, QueryContinueDragEventArgs e)
+    {
+        if (e.EscapePressed) e.Action = DragAction.Cancel;   // Esc 取消拖拽
+        _ghost?.MoveToCursor();
     }
 
     private DropAdorner? Adorner()
