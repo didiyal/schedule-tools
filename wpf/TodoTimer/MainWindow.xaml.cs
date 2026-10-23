@@ -93,13 +93,45 @@ public partial class MainWindow : Window
         _pendingDrop = action;
         if (action is null) { Adorner()?.Clear(); return; }
 
-        var indent = row.Depth * 18;
-        if (action.Kind == DropKind.Child)
-            Adorner()?.ShowChildBox(rect.X + 2, rect.Y + 1, rect.Width - 4, rect.Height - 2);
-        else if (action.Kind == DropKind.SiblingBefore)
-            Adorner()?.ShowSiblingLine(rect.X + indent + 2, rect.Y, List.ActualWidth - indent - 20);
-        else
-            Adorner()?.ShowSiblingLine(rect.X + indent + 2, rect.Y + rect.Height, List.ActualWidth - indent - 20);
+        var indent = row.Depth * 28;
+        var ad = Adorner();
+        if (ad is null) return;
+        ad.Show(dc =>
+        {
+            // 目标行暗色投影 = 被影子压住的碰撞感
+            dc.DrawRoundedRectangle(
+                System.Windows.Media.Brushes.Black, null,
+                new System.Windows.Rect(rect.X + 1, rect.Y + 1, rect.Width - 2, rect.Height - 2),
+                6, 6);
+            dc.PushOpacity(0.12);
+            dc.DrawRoundedRectangle(
+                System.Windows.Media.Brushes.White, null,
+                new System.Windows.Rect(rect.X + 1, rect.Y + 1, rect.Width - 2, rect.Height - 2),
+                6, 6);
+            dc.Pop();
+
+            var green = new System.Windows.Media.SolidColorBrush(
+                System.Windows.Media.Color.FromRgb(0x2B, 0xA2, 0x45));
+            var blue = new System.Windows.Media.SolidColorBrush(
+                System.Windows.Media.Color.FromRgb(0x1F, 0x6B, 0xFF));
+            if (action.Kind == DropKind.Child)
+            {
+                dc.DrawRoundedRectangle(null, new System.Windows.Media.Pen(green, 3),
+                    new System.Windows.Rect(rect.X + 2, rect.Y + 1, rect.Width - 4, rect.Height - 2), 6, 6);
+                dc.DrawRoundedRectangle(green, null,
+                    new System.Windows.Rect(rect.X + 28, rect.Y + rect.Height - 2.5,
+                        Math.Max(rect.Width - 28, 220), 5), 2.5, 2.5);
+            }
+            else
+            {
+                var y = action.Kind == DropKind.SiblingBefore ? rect.Y : rect.Y + rect.Height;
+                dc.DrawRoundedRectangle(blue, null,
+                    new System.Windows.Rect(rect.X + indent + 2, y - 2.5,
+                        Math.Max(List.ActualWidth - indent - 20, 240), 5), 2.5, 2.5);
+                dc.DrawEllipse(blue, null,
+                    new System.Windows.Point(rect.X + indent + 5, y), 6, 6);
+            }
+        });
         e.Effects = DragDropEffects.Move;
         e.Handled = true;
     }

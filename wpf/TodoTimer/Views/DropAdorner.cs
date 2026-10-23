@@ -21,6 +21,13 @@ public sealed class DropAdorner : Adorner
         _dv.RenderOpen().Close();
     }
 
+    /// <summary>目标行被影子压住的暗色层（体积/碰撞感），随蓝线或绿框同帧绘制。</summary>
+    public void Show(Action<System.Windows.Media.DrawingContext> draw)
+    {
+        using var dc = _dv.RenderOpen();
+        draw(dc);
+    }
+
     /// <summary>蓝色插入线（兄弟插入位置）——加粗加长保证可辨识。</summary>
     public void ShowSiblingLine(double x, double y, double width)
     {

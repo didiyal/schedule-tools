@@ -48,7 +48,7 @@ public sealed class DragGhostWindow : Window
             { BlurRadius = 14, ShadowDepth = 3, Opacity = 0.4 },
         };
         Content = host;
-        Width = 240;
+        Width = 190;
         SizeToContent = SizeToContent.Height;
         WindowStyle = WindowStyle.None;
         AllowsTransparency = true;
@@ -75,10 +75,15 @@ public sealed class DragGhostWindow : Window
 
     public void MoveToCursor()
     {
-        if (GetCursorPos(out var p))
+        if (!GetCursorPos(out var p)) return;
+        // GetCursorPos 是物理像素, WPF Left/Top 是 DIP——高 DPI 下不换算会出现大高低差
+        var dpiX = 1.0; var dpiY = 1.0;
+        if (PresentationSource.FromVisual(this)?.CompositionTarget is { } ct)
         {
-            Left = p.X + 10;
-            Top = p.Y - 16;
+            dpiX = ct.TransformToDevice.M11;
+            dpiY = ct.TransformToDevice.M22;
         }
+        Left = p.X / dpiX - ActualWidth / 2;
+        Top = p.Y / dpiY - ActualHeight / 2;
     }
 }
