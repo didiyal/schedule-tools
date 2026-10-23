@@ -159,20 +159,60 @@ def apply(payload, raw):
     return {"ok": False, "error": f"未知命令: {cmd!r}"}
 
 
-def list_items(raw, date=None, show_all=False):
-    """返回 (scope, [brief...])；排序与 GUI 一致：未完成在前、重点优先。"""
+def filter_items(raw, date=None, show_all=False, date_from=None,
+                 date_to=None, search=None):
+    """按 list/stats 共用规则筛出待办 dict 列表，返回 (scope标签, [dict])。"""
     todos = raw["todos"]
     if show_all:
         items = list(todos)
         scope = "all"
+    elif date_from or date_to:
+        lo, hi = date_from or "0000-01-01", date_to or "9999-12-31"
+        items = [it for it in todos if lo <= it.get("date", today_str()) <= hi]
+        scope = f"{lo}~{hi}"
     else:
         d = date or today_str()
         items = [it for it in todos if it.get("date", today_str()) == d]
         scope = d
+    q = (search or "").strip().lower()
+    if q:
+        items = [it for it in items if q in it.get("text", "").lower()]
+    return scope, items
+
+
+def list_items(raw, date=None, show_all=False, date_from=None,
+               date_to=None, search=None):
+    """返回 (scope, [brief...])；排序与 GUI 一致：未完成在前、重点优先。"""
+    scope, items = filter_items(raw, date, show_all, date_from, date_to,
+                                search)
     items.sort(key=lambda it: (bool(it.get("completed")),
                                not it.get("starred", False),
                                it.get("order", 0)))
     return scope, [brief(it) for it in items]
+
+
+def stats_items(raw, date=None, show_all=False, date_from=None,
+                date_to=None, search=None, top=5):
+    """耗时/数量统计：总数、状态分布、累计投入、耗时 Top N。"""
+    scope, items = filter_items(raw, date, show_all, date_from, date_to,
+                                search)
+    elapsed = [(it, _live_elapsed(it)) for it in items]
+    total = sum(e for _, e in elapsed)
+    running = [it for it in items if it.get("running")
+               and not it.get("completed")]
+    ranked = sorted(elapsed, key=lambda ie: -ie[1])[:top]
+    return {
+        "scope": scope, "count": len(items),
+        "count_completed": sum(1 for it in items if it.get("completed")),
+        "count_running": len(running),
+        "total_elapsed_seconds": total,
+        "total_elapsed_hms": fmt_time(total),
+        "running_now": [{"id": str(it.get("id")), "text": it.get("text", "")}
+                        for it in running],
+        "top": [{"id": str(it.get("id")), "text": it.get("text", ""),
+                 "elapsed_seconds": e, "elapsed_hms": fmt_time(e)}
+                for it, e in ranked],
+    }
 
 
 def today_str():

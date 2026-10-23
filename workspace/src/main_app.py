@@ -1704,6 +1704,14 @@ class MainApp:
         return w
 
     @staticmethod
+    def _cli_ids(p):
+        """id 参数统一成 list[str]（CLI 批量操作时为多元素）"""
+        ids = p.get("id", [])
+        if not isinstance(ids, list):
+            ids = [ids]
+        return [str(i) for i in ids]
+
+    @staticmethod
     def _cli_brief(w):
         if w.completed:
             status = "completed"
@@ -1718,18 +1726,53 @@ class MainApp:
                 "status": status, "starred": w.starred,
                 "in_panel": w.is_visible(), "target_seconds": w.target_seconds}
 
-    def _cli_list(self, p):
+    def _cli_scope(self, p):
+        """按 list/stats 共用的规则筛出待办集合，返回 (scope标签, [TodoWidget])"""
         if p.get("all"):
-            items = list(self.todos.values())
-            scope = "all"
-        else:
-            scope = p.get("date") or get_today_str()
+            return "all", list(self.todos.values())
+        date_from, date_to = p.get("date_from"), p.get("date_to")
+        if date_from or date_to:
+            lo = date_from or "0000-01-01"
+            hi = date_to or "9999-12-31"
             items = [w for w in self.todos.values()
-                     if getattr(w, "_date", "") == scope]
+                     if lo <= getattr(w, "_date", "") <= hi]
+            return f"{lo}~{hi}", items
+        scope = p.get("date") or get_today_str()
+        items = [w for w in self.todos.values()
+                 if getattr(w, "_date", "") == scope]
+        return scope, items
+
+    def _cli_list(self, p):
+        scope, items = self._cli_scope(p)
+        q = (p.get("search") or "").strip().lower()
+        if q:
+            items = [w for w in items if q in w.text.lower()]
         items.sort(key=lambda w: (w.completed, not w.starred,
                                   getattr(w, "_order", 0)))
         return {"scope": scope, "count": len(items),
+                "search": q or None,
                 "todos": [self._cli_brief(w) for w in items]}
+
+    def _cli_stats(self, p):
+        scope, items = self._cli_scope(p)
+        q = (p.get("search") or "").strip().lower()
+        if q:
+            items = [w for w in items if q in w.text.lower()]
+        elapsed = [(w, w.get_live_elapsed()) for w in items]
+        total = sum(e for _, e in elapsed)
+        running = [w for w in items if w.running]
+        top_n = p.get("top") or 5
+        top = sorted(elapsed, key=lambda we: -we[1])[:top_n]
+        return {"scope": scope, "count": len(items),
+                "count_completed": sum(1 for w in items if w.completed),
+                "count_running": len(running),
+                "total_elapsed_seconds": total,
+                "total_elapsed_hms": fmt_time(total),
+                "running_now": [{"id": w.todo_id, "text": w.text}
+                                for w in running],
+                "top": [{"id": w.todo_id, "text": w.text,
+                         "elapsed_seconds": e, "elapsed_hms": fmt_time(e)}
+                        for w, e in top]}
 
     def _cli_add(self, p):
         text = (p.get("text") or "").strip()
@@ -1741,6 +1784,11 @@ class MainApp:
         return {"added": self._cli_brief(self.todos[tid])}
 
     def _cli_delete(self, p):
+        return {"results": [dict(self._cli_delete_one(i))
+                          for i in self._cli_ids(p)]}
+
+    def _cli_delete_one(self, tid):
+        p = {"id": tid}
         w = self._cli_get(p)
         tid = w.todo_id
         if self.timer_panel.has_todo(tid):
@@ -1760,11 +1808,21 @@ class MainApp:
         return {"moved": w.todo_id, "date": date}
 
     def _cli_done(self, p):
+        return {"results": [dict(self._cli_done_one(i))
+                          for i in self._cli_ids(p)]}
+
+    def _cli_done_one(self, tid):
+        p = {"id": tid}
         w = self._cli_get(p)
         w.set_complete()
         return {"done": w.todo_id}
 
     def _cli_undo(self, p):
+        return {"results": [dict(self._cli_undo_one(i))
+                          for i in self._cli_ids(p)]}
+
+    def _cli_undo_one(self, tid):
+        p = {"id": tid}
         w = self._cli_get(p)
         w.set_incomplete()
         return {"undone": w.todo_id}
@@ -1785,11 +1843,21 @@ class MainApp:
         return {"id": w.todo_id, "starred": w.starred}
 
     def _cli_start(self, p):
+        return {"results": [dict(self._cli_start_one(i))
+                          for i in self._cli_ids(p)]}
+
+    def _cli_start_one(self, tid):
+        p = {"id": tid}
         w = self._cli_get(p)
         w.start()
         return {"id": w.todo_id, "status": "running"}
 
     def _cli_pause(self, p):
+        return {"results": [dict(self._cli_pause_one(i))
+                          for i in self._cli_ids(p)]}
+
+    def _cli_pause_one(self, tid):
+        p = {"id": tid}
         w = self._cli_get(p)
         w.pause()
         return {"id": w.todo_id, "status": "paused"}

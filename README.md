@@ -49,9 +49,11 @@ Windows 桌面悬浮待办计时工具 —— 主窗口管理待办列表，统�
 
 ```bash
 cd tools/workspace
-python todo_cli.py list [--date YYYY-MM-DD | --all] [--json]
+python todo_cli.py list [--date YYYY-MM-DD | --all | --from A --to B] [--search 关键词] [--json]
+python todo_cli.py search 关键词 [--json]              # 跨全部日期搜索
+python todo_cli.py stats [--date ... | --all] [--top N] [--json]   # 耗时/数量统计
 python todo_cli.py add "任务文本" [--date YYYY-MM-DD] [--star]
-python todo_cli.py done <id> | undo <id> | delete <id>
+python todo_cli.py done <id> [id...] | undo <id> [id...] | delete <id> [id...]  # 支持批量
 python todo_cli.py move <id> YYYY-MM-DD | rename <id> "新文本" | star <id>
 python todo_cli.py start <id> | pause <id>
 ```

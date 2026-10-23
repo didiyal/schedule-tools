@@ -12,6 +12,10 @@
   界面，界面操作 Agent 立即可读）；GUI 未运行时自动降级直接读写
   `data/todos.json`（同语义、原子写 + `.bak`）。GUI 运行中但 IPC 不可达时
   拒绝写文件以防覆盖。详见 CLAUDE.md「CLI/Agent 服务」。
+- **CLI 搜索/统计/批量**：`search 关键词`（跨全部日期）、`list --search/--from/--to`
+  （关键词 + 日期范围过滤）、`stats`（数量/状态分布/累计投入/耗时 Top N）；
+  done / undo / delete / star / start / pause 支持**多 id 批量**（部分失败时
+  成功项仍持久化并逐条回报）。
 ## v1.1.2 — 2026-10-23
 
 ### 调整
