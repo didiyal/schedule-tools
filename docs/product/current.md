@@ -1,11 +1,12 @@
 # 当前产品需求版本
 
-当前生效版本：`v1.1.2`
+当前生效版本：`v1.2.0`
 
-> v1.1 在 v1.0 功能基础上做 UI 现代化与安装器分发，**功能行为不变**；基础功能需求仍以 v1.0 文档为准。
+> v1.2 新增任务树 / 分页加载 / 筛选勾选改造 / CLI 树支持；界面布局与完成态视觉的决策记录见 v1.2 设计稿。
 
 ## 文档入口
 
+- v1.2 设计稿：[v1.2/design.md](v1.2/design.md) · 变更记录：[v1.2/changelog.md](v1.2/changelog.md)
 - v1.1.2 变更记录：[v1.1.2/changelog.md](v1.1.2/changelog.md)
 - v1.1.1 变更记录：[v1.1.1/changelog.md](v1.1.1/changelog.md)
 - v1.1 变更记录：[v1.1/changelog.md](v1.1/changelog.md)

@@ -16,11 +16,12 @@ SAVE_FILE = os.path.join(_BASE, "data", "todos.json")
 ARCHIVE_FILE = os.path.join(_BASE, "data", "archive.json")
 
 import customtkinter as ctk
-from .constants import C, FONT, RADIUS, APP_VERSION
+from .constants import C, FONT, RADIUS, APP_VERSION, PAGE_SIZE
 from .utils import flat_btn, get_today_str, fmt_date_cn, fmt_time
+from . import tree
 from .todo_widget import TodoWidget
 from .date_picker import DatePickerDialog
-from .todo_card import TodoCard, SectionHeader, EmptyHint
+from .todo_card import TodoCard, SectionHeader, EmptyHint, LoadMoreHint
 from .timer_panel import TimerPanel
 from .cli_server import CLIServer
 from .tray import TrayController, autostart_enabled, set_autostart
@@ -49,6 +50,10 @@ class MainApp:
     RENDER_BUDGET = 0.08      # 每帧渲染时间预算（秒）
     PREWARM_DELAY = 1500      # 启动后延迟多久开始预热（ms）
     PREWARM_INTERVAL = 30     # 预热节拍：每张卡片映射一拍（ms）
+    PREWARM_CAP = 200         # 预热卡片数上限（ todo 极多时保住启动空闲期）
+    INSERT_STREAM_MIN = 10    # insert 路径一次新增卡片超过此数 → 分帧补齐
+    INSERT_CHUNK = 10         # insert 分帧：每帧补齐张数
+    INDENT_PX = 18            # 树每层缩进（px）
 
     def __init__(self):
         self.root = ctk.CTk()
@@ -63,7 +68,7 @@ class MainApp:
         self._next_id = 0
         self._next_order = 0
         self.current_date = get_today_str()
-        self.filter_state = "active"
+        self.filter_state = "all"    # v1.2：默认全部视图（勾选筛选切换）
         self._cards: list = []  # TodoCard | SectionHeader | EmptyHint
         self._card_cache: dict = {}  # todo_id -> TodoCard（跨视图复用，避免重建）
         self._deco_cache: dict = {}  # (kind, text) -> SectionHeader | EmptyHint
@@ -75,6 +80,11 @@ class MainApp:
         self._selected_tid: str | None = None
         self._search_term = ""
         self._undo_action = None
+        self._page_limit = PAGE_SIZE       # 分页：当前放行的卡片条目上限
+        self._autoload_after_id = None     # 滚动到底自动加载的防抖句柄
+        self._collapsed: set = set()       # 折叠的树节点 id（随 todos.json 持久化）
+        self._drop_target_tid = None       # 拖拽「成为子级」绿色高亮目标
+        self._pending_insert = None        # insert 分帧状态（work/succ/token）
         self._dragging_tid: str | None = None        # 当前拖拽中的待办 id
         self._drag_ghost = None                       # 拖拽虚影 Toplevel
         self._drop_ind = None                         # 拖拽落点指示线 Toplevel
@@ -178,25 +188,32 @@ class MainApp:
                  C["blue_light"], C["blue"], font_size=9, pady=3, padx=12,
                  fg=C["blue"]).pack(side=tk.LEFT, padx=(16, 0))
 
-        # ── 筛选标签栏 ──
+        # ── 筛选栏：默认全部，勾选可只看未完成/已完成 ──
         filter_bar = ctk.CTkFrame(self.root, fg_color=C["surface"])
         filter_bar.pack(fill=tk.X)
         filter_inner = ctk.CTkFrame(filter_bar, fg_color=C["surface"])
-        filter_inner.pack(fill=tk.X, padx=16, pady=(0, 3))
+        filter_inner.pack(fill=tk.X, padx=16, pady=(0, 4))
 
-        self._seg_map = {"未完成": "active", "已完成": "completed", "全部": "all"}
-        self.filter_seg = ctk.CTkSegmentedButton(
-            filter_inner,
-            values=["未完成", "已完成", "全部"],
-            command=self._on_seg_filter,
-            corner_radius=RADIUS["pill"],
-            fg_color=C["bg"],
-            selected_color=C["blue_light"], selected_hover_color=C["border"],
-            unselected_color=C["surface"], unselected_hover_color=C["bg"],
-            text_color=C["text"], font=(FONT, 11),
-        )
-        self.filter_seg.set("未完成")
-        self.filter_seg.pack(side=tk.LEFT)
+        ctk.CTkLabel(filter_inner, text="筛选", fg_color=C["surface"],
+                     text_color=C["text_ter"], font=(FONT, 10)).pack(
+            side=tk.LEFT, padx=(0, 12))
+
+        self._filter_active_var = tk.BooleanVar(value=False)
+        self._filter_completed_var = tk.BooleanVar(value=False)
+        ctk.CTkCheckBox(
+            filter_inner, text="未完成", variable=self._filter_active_var,
+            command=self._on_filter_toggle,
+            fg_color=C["blue"], hover_color=C["blue_hover"],
+            border_color=C["border"], text_color=C["text"],
+            font=(FONT, 11), corner_radius=RADIUS["button"],
+            checkbox_width=16, checkbox_height=16).pack(side=tk.LEFT, padx=(0, 16))
+        ctk.CTkCheckBox(
+            filter_inner, text="已完成", variable=self._filter_completed_var,
+            command=self._on_filter_toggle,
+            fg_color=C["green"], hover_color=C["green_hover"],
+            border_color=C["border"], text_color=C["text"],
+            font=(FONT, 11), corner_radius=RADIUS["button"],
+            checkbox_width=16, checkbox_height=16).pack(side=tk.LEFT)
 
         ctk.CTkFrame(self.root, fg_color=C["border"], height=1).pack(fill=tk.X)
 
@@ -283,7 +300,7 @@ class MainApp:
                                       command=self.canvas.yview,
                                       bg=C["bg"], troughcolor=C["bg"],
                                       activebackground=C["blue"])
-        self.canvas.configure(yscrollcommand=self.scrollbar.set)
+        self.canvas.configure(yscrollcommand=self._on_canvas_yview)
 
         self.card_frame = tk.Frame(self.canvas, bg=C["bg"])
         self.card_frame_id = self.canvas.create_window((0, 0), window=self.card_frame,
@@ -308,6 +325,17 @@ class MainApp:
         self.card_frame.bind("<Down>", lambda e: self._key_move(1))
         self.card_frame.bind("<space>", lambda e: self._key_toggle_complete())
         self.card_frame.bind("<Delete>", lambda e: self._delete_selected())
+
+        def _tab(_e):
+            self._indent_selected()
+            return "break"
+
+        def _shift_tab(_e):
+            self._outdent_selected()
+            return "break"
+
+        self.card_frame.bind("<Tab>", _tab)
+        self.card_frame.bind("<Shift-Tab>", _shift_tab)
         self.root.bind("<Control-z>", lambda e: self._key_undo())
         self.root.bind("<Control-q>", lambda e: self._quit_app())
         # 拖拽释放安全网：鼠标释放在卡片外也能清理拖拽高亮
@@ -351,6 +379,32 @@ class MainApp:
         except Exception:
             return None
 
+    # ── 分页 ──
+    def _on_canvas_yview(self, first, last):
+        """scrollbar 联动 + 到底自动加载下一页（250ms 防抖）。
+        追加一页后视口分数自然回落，不会级联把所有页加载完。"""
+        self.scrollbar.set(first, last)
+        if self._autoload_after_id:
+            return
+        try:
+            at_bottom = float(last) >= 0.999
+        except (TypeError, ValueError):
+            return
+        if at_bottom:
+            self._autoload_after_id = self.root.after(250, self._autoload_check)
+
+    def _autoload_check(self):
+        self._autoload_after_id = None
+        _first, last = self.canvas.yview()
+        if last < 0.999:
+            return
+        self._load_more()
+
+    def _load_more(self):
+        """放行下一页（「加载更多」按钮 / 滚动到底自动触发）"""
+        self._page_limit += PAGE_SIZE
+        self._refresh_view()
+
     # ── 键盘操作 ──
     def _key_move(self, direction):
         """上下键导航卡片列表"""
@@ -386,14 +440,21 @@ class MainApp:
             self._toggle_star_selected()
         elif action == "delete":
             if snapshot:
-                self._add_todo(
-                    text=snapshot.get("text"), elapsed=snapshot.get("elapsed", 0),
-                    todo_id=snapshot.get("id"), visible=snapshot.get("visible", True),
-                    date=snapshot.get("date"), completed=snapshot.get("completed", False),
-                    order=snapshot.get("order"), starred=snapshot.get("starred", False),
-                    target_seconds=snapshot.get("target_seconds"),
-                    reminded=snapshot.get("reminded", False),
-                )
+                first = None
+                for snap in snapshot:   # 父先子后，恢复树引用
+                    new_tid = self._add_todo(
+                        text=snap.get("text"), elapsed=snap.get("elapsed", 0),
+                        todo_id=snap.get("id"), visible=snap.get("visible", True),
+                        date=snap.get("date"), completed=snap.get("completed", False),
+                        order=snap.get("order"), starred=snap.get("starred", False),
+                        target_seconds=snap.get("target_seconds"),
+                        reminded=snap.get("reminded", False),
+                        parent_id=snap.get("parent"),
+                    )
+                    if first is None:
+                        first = new_tid
+                if first:
+                    self._select_card(first)
         elif action == "edit":
             if snapshot and todo_id in self.todos:
                 self.todos[todo_id].set_text(snapshot)
@@ -407,32 +468,34 @@ class MainApp:
         if term == self._search_term:
             return
         self._search_term = term
+        self._page_limit = PAGE_SIZE
         # 300ms 防抖后刷新
         if hasattr(self, "_search_after_id"):
             self.root.after_cancel(self._search_after_id)
         self._search_after_id = self.root.after(300, self._refresh_view)
 
     # ── 筛选 ──
-    def _on_seg_filter(self, value):
-        self._set_filter(self._seg_map[value])
-
-    def _set_filter(self, state):
-        self.filter_state = state
-        # 同步分段按钮选中态（逆映射 state→中文键）
-        for cn, st in self._seg_map.items():
-            if st == state:
-                self.filter_seg.set(cn)
-                break
+    def _on_filter_toggle(self):
+        a, c = self._filter_active_var.get(), self._filter_completed_var.get()
+        if a and not c:
+            self.filter_state = "active"
+        elif c and not a:
+            self.filter_state = "completed"
+        else:                     # 双勾或都不勾 = 全部
+            self.filter_state = "all"
+        self._page_limit = PAGE_SIZE
         self._refresh_view()
 
     # ── 日期 ──
     def _shift_date(self, days):
         d = datetime.strptime(self.current_date, "%Y-%m-%d") + timedelta(days=days)
         self.current_date = d.strftime("%Y-%m-%d")
+        self._page_limit = PAGE_SIZE
         self._refresh_view()
 
     def _goto_today(self):
         self.current_date = get_today_str()
+        self._page_limit = PAGE_SIZE
         self._refresh_view()
 
     # ── 待办 CRUD ──────────────────────────────────────
@@ -440,7 +503,7 @@ class MainApp:
                   todo_id=None, visible=True, date=None, completed=False,
                   order=None, starred=False, running=False,
                   last_started_at=None, target_seconds=None, reminded=False,
-                  from_cli=False):
+                  parent_id=None, from_cli=False):
         if text is None:
             text = self.entry.get().strip()
         if not text:
@@ -468,7 +531,7 @@ class MainApp:
         w = TodoWidget(todo_id, text, elapsed, completed=completed,
                        order=w_order, starred=starred,
                        date=date or self.current_date,
-                       target_seconds=target_seconds)
+                       target_seconds=target_seconds, parent_id=parent_id)
         w.reminded = bool(reminded)
         w.add_callback(lambda: self._on_todo_state_change())
 
@@ -622,19 +685,32 @@ class MainApp:
                 if k not in keep:
                     w.pack_forget()
         elif mode == "insert":
-            successor = None
+            # 反序工作单：("exist", w) / ("new", e) —— 严格从尾部向前补，
+            # before= 锚点必已就位；新增过多时分帧，避免一次 pack 数十张卡冻结 UI
+            work = []
             for e in reversed([e for e in entries if e[0] == "card"]):
-                key = ("card", e[1])
-                if key in card_widget_by_key:
-                    successor = card_widget_by_key[key]
-                else:
-                    w = self._obtain_card(self.todos[e[1]], e[2], e[3])
-                    if successor is not None:
-                        w.pack(fill=tk.X, pady=(0, 4), before=successor)
+                wgt = card_widget_by_key.get(("card", e[1]))
+                work.append(("exist", wgt) if wgt is not None else ("new", e))
+            n_new = sum(1 for kind, _ in work if kind == "new")
+
+            if n_new <= self.INSERT_STREAM_MIN:
+                succ = None
+                for kind, item in work:
+                    if kind == "exist":
+                        succ = item
+                        continue
+                    w = self._obtain_card(item)
+                    if succ is not None:
+                        w.pack(fill=tk.X, pady=(0, 4), before=succ)
                     else:
                         w.pack(fill=tk.X, pady=(0, 4))
-                    card_widget_by_key[key] = w
-                    successor = w
+                    card_widget_by_key[("card", item[1])] = w
+                    succ = w
+            else:
+                self._pending_insert = {"work": work, "succ": None,
+                                        "token": token, "entries": entries,
+                                        "card_widget_by_key": card_widget_by_key}
+                self._insert_step()
 
         if mode == "same" and not decos_changed:
             # 卡片序列与装饰都没变，但数据可能已变（文字/★/完成态…）
@@ -644,11 +720,21 @@ class MainApp:
                     self._sync_card(w, e)
             return
 
-        # 重挂装饰：以已就位卡片为锚点（before/after）插入，卡片保持不动
+        if mode == "insert" and n_new > self.INSERT_STREAM_MIN:
+            # 分帧补齐中：装饰重挂与序列重建延到最后一帧（_insert_step）
+            return
+
+        self._rehang_entries(entries, card_widget_by_key)
+
+    def _rehang_entries(self, entries, card_widget_by_key):
+        """重挂装饰并重建 _packed_seq/_cards：以已就位卡片为锚点，卡片保持不动"""
+        first_card_w = None
+        for e in entries:
+            if e[0] == "card":
+                first_card_w = card_widget_by_key[("card", e[1])]
+                break
         new_seq = []
         prev = None
-        first_card_w = (card_widget_by_key[new_card_keys[0]]
-                        if new_card_keys else None)
         for e in entries:
             if e[0] == "card":
                 w = card_widget_by_key[("card", e[1])]
@@ -668,13 +754,49 @@ class MainApp:
         self._packed_seq = new_seq
         self._cards = [w for _, w in new_seq]
 
+    def _insert_step(self):
+        """insert 分帧：每帧补 INSERT_CHUNK 张（反序处理，锚点必已就位），
+        最后一帧重挂装饰并重建渲染序列。"""
+        st = getattr(self, "_pending_insert", None)
+        if not st or st["token"] != self._render_seq:
+            self._pending_insert = None
+            return
+        work = st["work"]
+        succ = st["succ"]
+        i = 0
+        while work and i < self.INSERT_CHUNK:
+            kind, item = work.pop(0)
+            if kind == "exist":
+                succ = item
+            else:
+                w = self._obtain_card(item)
+                if succ is not None:
+                    w.pack(fill=tk.X, pady=(0, 4), before=succ)
+                else:
+                    w.pack(fill=tk.X, pady=(0, 4))
+                st["card_widget_by_key"][("card", item[1])] = w
+                succ = w
+            i += 1
+        st["succ"] = succ
+        if work:
+            self._stream_after_id = self.root.after(16, self._insert_step)
+        else:
+            self._stream_after_id = None
+            self._rehang_entries(st["entries"], st["card_widget_by_key"])
+            self._pending_insert = None
+
     def _sync_card(self, card, e):
         """原地路径的卡片内容同步：所有 set_* 均有同值守卫，仅真正变化的卡片重绘"""
         card.todo_widget = self.todos[e[1]]
         card.set_sequence(e[2])
         card.set_show_date(e[3])
+        card.set_indent(e[4] * self.INDENT_PX)
+        card.set_expand(e[5], e[6])
+        card.set_dim(e[7])
+        card.set_progress(e[8])
         card.set_selected(e[1] == self._selected_tid)
         card.set_dragging(False)
+        card.set_drop_target(False)
         card.refresh()
 
     def _stream_render(self, entries, token):
@@ -704,10 +826,11 @@ class MainApp:
 
     def _pack_entry(self, e):
         if e[0] == "card":
-            card = self._obtain_card(self.todos[e[1]], e[2], e[3])
+            card = self._obtain_card(e)
             card.pack(fill=tk.X, pady=(0, 4))
             self._packed_seq.append((("card", e[1]), card))
             self._cards.append(card)
+            self._sync_card(card, e)   # 落地缩进等 pack 期属性（均有守卫）
         else:
             deco = self._obtain_deco(e)
             deco.pack(fill=tk.X)
@@ -740,98 +863,97 @@ class MainApp:
 
         返回元组 (filter_state, current_date, search, n_todos, fingerprint,
         entries, stat_text)。entries 为不可变序列：
-        ("hdr"|"sub"|"empty", 文本) 与 ("card", todo_id, 序号, 显示日期)。
-        fingerprint 覆盖所有影响渲染的数据（含不走 _fire_change 的
-        starred/_order 直接赋值），任一变化都会使计划失效。
+        ("hdr"|"empty"|"more", 文本) 与
+        ("card", todo_id, 序号, 显示日期, 层级, 可展开, 已展开, 弱显, 子进度)。
+
+        v1.2 布局（用户拍板）：不分区，每日一棵树 —— 按日期倒序的日组，组内是
+        当天根节点构成的森林（树包含优先于日期分组，子树跟根走）；排序与完成态
+        解耦（重点 → order）；勾选/搜索是节点谓词，未命中者剔除、命中者的祖先链
+        保留并弱显。分页在计划层截断，超出部分以 ("more", …) 哨兵收尾。
+        fingerprint 覆盖所有影响渲染的数据，任一变化都会使计划失效。
         """
         st = self._search_term.lower()
+        parents = tree.normalize(
+            {tid: w.parent_id for tid, w in self.todos.items()})
+        ch_map = tree.children_map(parents)
+        children_sorted = {
+            p: sorted(ids, key=lambda t: (not self.todos[t].starred,
+                                          self.todos[t]._order))
+            for p, ids in ch_map.items()}
 
-        def _matches(w):
+        def matches(w):
+            if self.filter_state == "active" and w.completed:
+                return False
+            if self.filter_state == "completed" and not w.completed:
+                return False
             return not st or st in w.text.lower()
 
-        today_str = self.current_date
+        # 谓词命中集 + 祖先链保留（retained 中未命中者弱显撑结构）
+        keep = {tid for tid, w in self.todos.items() if matches(w)}
+        retained = set(keep)
+        for tid in keep:
+            cur, seen = parents.get(tid), set()
+            while cur is not None and cur in parents and cur not in seen:
+                retained.add(cur)
+                seen.add(cur)
+                cur = parents.get(cur)
+
+        today = get_today_str()
+        roots_by_date = {}
+        for tid, pid in parents.items():
+            if pid is None:
+                d = getattr(self.todos[tid], "_date", "") or today
+                roots_by_date.setdefault(d, []).append(tid)
+
         entries = []
-        order_key = lambda w: (not getattr(w, "starred", False),
-                               getattr(w, "_order", 0))
+        for dk in sorted(roots_by_date.keys(), reverse=True):
+            day_cards = []
 
-        if self.filter_state == "active":
-            today_items, cross_items = [], []
-            for w in self.todos.values():
-                if w.completed or not _matches(w):
-                    continue
-                w_date = getattr(w, "_date", get_today_str())
-                if w_date == today_str:
-                    today_items.append(w)
-                elif w_date < today_str:
-                    cross_items.append(w)
+            def emit(tid, depth, parent_date):
+                w = self.todos[tid]
+                kids_all = ch_map.get(tid, [])
+                expandable = bool(kids_all)
+                prog = ""
+                if expandable:
+                    done = sum(1 for k in kids_all if self.todos[k].completed)
+                    prog = f"{done}/{len(kids_all)}"
+                if tid in retained:
+                    show_date = (depth > 0
+                                 and getattr(w, "_date", "") != parent_date)
+                    day_cards.append(
+                        ("card", tid, len(day_cards) + 1, show_date, depth,
+                         expandable, tid not in self._collapsed,
+                         tid not in keep, prog))
+                if tid in self._collapsed:
+                    return          # 折叠：发出节点本身，跳过整棵子树
+                for k in children_sorted.get(tid, []):
+                    emit(k, depth + 1, getattr(w, "_date", ""))
 
-            today_items.sort(key=order_key)
-            cross_items.sort(key=order_key)
+            for tid in children_sorted.get(None, []):
+                if tid in roots_by_date[dk]:
+                    emit(tid, 0, "")
+            if day_cards:
+                label = (f"▎今日 · {len(day_cards)}项" if dk == today
+                         else f"▎{fmt_date_cn(dk)} · {len(day_cards)}项")
+                entries.append(("hdr", label))
+                entries.extend(day_cards)
 
-            if today_items:
-                entries.append(("hdr", "▎今日待办"))
-            for seq, w in enumerate(today_items, 1):
-                entries.append(("card", w.todo_id, seq, False))
+        # 分页截断：最多放行 _page_limit 张卡片，尾部加「加载更多」哨兵
+        n_cards = sum(1 for e in entries if e[0] == "card")
+        if n_cards > self._page_limit:
+            cut, seen_cards = [], 0
+            for e in entries:
+                if e[0] == "card":
+                    if seen_cards >= self._page_limit:
+                        break
+                    seen_cards += 1
+                cut.append(e)
+            cut.append(("more",
+                        f"加载更多（还有 {n_cards - self._page_limit} 项）"))
+            entries = cut
 
-            if cross_items:
-                entries.append(("hdr", f"▎跨日未完成 ({len(cross_items)}项)"))
-                groups = {}
-                for w in cross_items:
-                    groups.setdefault(getattr(w, "_date", ""), []).append(w)
-                single = len(groups) == 1
-                for dk in sorted(groups.keys()):
-                    group_items = groups[dk]
-                    if not single:
-                        entries.append(
-                            ("sub", f"  {fmt_date_cn(dk)} · {len(group_items)}项"))
-                    for seq, w in enumerate(group_items, 1):
-                        entries.append(("card", w.todo_id, seq, single))
-
-            if not today_items and not cross_items:
-                entries.append(("empty", "暂无待办"))
-
-        elif self.filter_state == "completed":
-            # 已完成视图：所有完成项按日期倒序分组（跨日完成归到完成当天）
-            all_completed = [w for w in self.todos.values()
-                             if w.completed and _matches(w)]
-            all_completed.sort(key=lambda w: (
-                getattr(w, "_date", ""), not getattr(w, "starred", False),
-                getattr(w, "_order", 0)))
-            if all_completed:
-                groups = {}
-                for w in all_completed:
-                    groups.setdefault(getattr(w, "_date", get_today_str()),
-                                      []).append(w)
-                for dk in sorted(groups.keys(), reverse=True):
-                    group_items = groups[dk]
-                    entries.append(
-                        ("hdr", f"▎{fmt_date_cn(dk)} · {len(group_items)}项"))
-                    for seq, w in enumerate(group_items, 1):
-                        entries.append(("card", w.todo_id, seq, False))
-            else:
-                entries.append(("empty", "暂无已完成待办"))
-
-        else:
-            # 全部视图：所有待办按日期倒序分组
-            all_todos = [w for w in self.todos.values() if _matches(w)]
-            all_todos.sort(key=lambda w: (
-                getattr(w, "_date", ""), not getattr(w, "starred", False),
-                w.completed, getattr(w, "_order", 0)))
-            if all_todos:
-                groups = {}
-                for w in all_todos:
-                    groups.setdefault(getattr(w, "_date", get_today_str()),
-                                      []).append(w)
-                today = get_today_str()
-                for dk in sorted(groups.keys(), reverse=True):
-                    group_items = groups[dk]
-                    label = (f"▎今日 · {len(group_items)}项" if dk == today
-                             else f"▎{fmt_date_cn(dk)} · {len(group_items)}项")
-                    entries.append(("hdr", label))
-                    for seq, w in enumerate(group_items, 1):
-                        entries.append(("card", w.todo_id, seq, False))
-            else:
-                entries.append(("empty", "暂无待办"))
+        if not any(e[0] == "card" for e in entries):
+            entries = [("empty", "暂无待办")]
 
         total = len(self.todos)
         active = sum(1 for w in self.todos.values() if not w.completed)
@@ -841,18 +963,21 @@ class MainApp:
                      f" · 运行中 {running}")
 
         fp = tuple((w, w._version, w.starred, w._order, w.completed,
-                    w.is_visible(), getattr(w, "_date", ""), w.elapsed)
+                    w.is_visible(), getattr(w, "_date", ""), w.elapsed,
+                    w.parent_id)
                    for w in self.todos.values())
         return (self.filter_state, self.current_date, self._search_term,
                 total, fp, tuple(entries), stat_text)
 
     def _obtain_deco(self, entry):
-        """从缓存取或新建分组标题/空提示（跨刷新复用，避免反复重建 CTk 控件）"""
+        """从缓存取或新建分组标题/空提示/加载更多（跨刷新复用，避免反复重建控件）"""
         kind, text = entry[0], entry[1]
         key = (kind, text)
         deco = self._deco_cache.get(key)
         if deco is None:
-            if kind == "empty":
+            if kind == "more":
+                deco = LoadMoreHint(self.card_frame, text, self._load_more)
+            elif kind == "empty":
                 deco = EmptyHint(self.card_frame, text)
             else:
                 deco = SectionHeader(self.card_frame, text,
@@ -867,7 +992,7 @@ class MainApp:
         视图卡顿的主因。这里逐张 place 到可视区外完成首次映射，下一拍再卸下，
         把这笔一次性成本摊在启动空闲期；此后切换视图全是热路径。"""
         pending = [w for w in self.todos.values()
-                   if w.todo_id not in self._card_cache]
+                   if w.todo_id not in self._card_cache][:self.PREWARM_CAP]
         mapped: list = []
 
         def step():
@@ -879,30 +1004,34 @@ class MainApp:
             w = pending.pop(0)
             tid = w.todo_id
             if tid in self.todos and tid not in self._card_cache:
-                card = self._obtain_card(w, seq=0, show_date=False)
+                card = self._obtain_card(("card", tid, 0, False, 0,
+                                          False, True, False, ""))
                 card.place(x=-20000, y=0)   # 映射以触发首次绘制, 不可见
                 mapped.append(card)
             self._prewarm_after_id = self.root.after(self.PREWARM_INTERVAL, step)
 
         self._prewarm_after_id = self.root.after(self.PREWARM_DELAY, step)
 
-    def _obtain_card(self, w, seq, show_date):
-        """从缓存取或新建卡片。跨视图复用，避免每次切换都重建全部控件（CTk 控件
-        构造较慢，是切换卡顿的根因）。复用时仅重新 pack/排序；set_*/refresh
-        内部均有同值守卫，数据未变化的卡片零重绘。"""
-        tid = w.todo_id
+    def _obtain_card(self, e):
+        """从缓存取或新建卡片（e 为完整渲染条目）。跨视图复用，避免每次切换
+        都重建全部控件（CTk 控件构造较慢，是切换卡顿的根因）。复用时仅重新
+        pack/排序；set_*/refresh 内部均有同值守卫，数据未变化的卡片零重绘。"""
+        tid = e[1]
         card = self._card_cache.get(tid)
         if card is None:
-            card = TodoCard(self.card_frame, w, seq=seq, show_date=show_date)
+            card = TodoCard(self.card_frame, self.todos[tid], seq=e[2],
+                            show_date=e[3], depth=e[4], expandable=e[5],
+                            expanded=e[6], dim=e[7], progress=e[8])
             card.callback_click = self._on_card_click
             card.callback_double = self._on_card_double
             card.callback_right = self._on_card_right_click
             card.callback_drag_start = self._on_drag_start
             card.callback_drag_move = self._on_drag_move
             card.callback_drag_drop = self._on_drag_drop
+            card.callback_toggle_expand = self._on_toggle_expand
             self._card_cache[tid] = card
         else:
-            self._sync_card(card, ("card", tid, seq, show_date))
+            self._sync_card(card, e)
         return card
 
     # ── 卡片交互回调 ────────────────────────────────────
@@ -954,8 +1083,136 @@ class MainApp:
         menu.add_command(label="✎ 编辑", command=self._edit_selected)
         menu.add_command(label="📅 更改日期", command=self._change_date)
         menu.add_separator()
-        menu.add_command(label="🗑 删除", command=self._delete_selected)
+        menu.add_command(label="➕ 添加子任务", command=self._add_child_selected)
+        menu.add_command(label="↳ 降为子任务 (Tab)", command=self._indent_selected)
+        menu.add_command(label="↰ 提升层级 (Shift+Tab)",
+                         command=self._outdent_selected)
+        menu.add_command(label=("展开子树" if tid in self._collapsed
+                                 else "折叠子树"),
+                         command=lambda: self._on_toggle_expand(tid))
+        menu.add_separator()
+        menu.add_command(label="🗑 删除（连同子任务）", command=self._delete_selected)
         menu.post(event.x_root, event.y_root)
+
+    # ── 任务树操作 ──────────────────────────────────────
+    def _on_toggle_expand(self, tid):
+        """折叠/展开子树（卡片 ▸/▾ 或右键菜单）。纯增/纯删走原地路径。"""
+        if tid in self._collapsed:
+            self._collapsed.discard(tid)
+        else:
+            self._collapsed.add(tid)
+        self._refresh_view()
+        self._schedule_save()
+
+    def _add_child_selected(self):
+        tid = self._get_selected_id()
+        if not tid or tid not in self.todos:
+            return
+        parents = {t: w.parent_id for t, w in self.todos.items()}
+        if tree.depth_of(parents, tid) + 1 > tree.MAX_DEPTH_INDEX:
+            self._toast("已达最大层级（3 层）", "orange")
+            return
+        parent = self.todos[tid]
+
+        dlg = ctk.CTkToplevel(self.root, fg_color=C["surface"])
+        dlg.title("添加子任务")
+        dlg.geometry("420x150")
+        dlg.resizable(False, False)
+        dlg.transient(self.root)
+        dlg.grab_set()
+
+        ctk.CTkLabel(dlg, text=f"「{parent.text}」下添加子任务",
+                     fg_color="transparent", text_color=C["text"],
+                     font=(FONT, 13, "bold")).pack(pady=(14, 8))
+
+        entry = ctk.CTkEntry(dlg, fg_color=C["bg"], text_color=C["text"],
+                             border_color=C["border"], border_width=1,
+                             corner_radius=RADIUS["card"], font=(FONT, 12),
+                             height=36)
+        entry.pack(fill=tk.X, padx=20)
+        entry.focus_set()
+
+        def save():
+            text = entry.get().strip()
+            if not text:
+                dlg.destroy()
+                return
+            new_tid = self._add_todo(
+                text=text,
+                date=getattr(parent, "_date", get_today_str()),
+                parent_id=tid)
+            self._collapsed.discard(tid)   # 父节点自动展开
+            self._refresh_view()
+            if new_tid:
+                self._select_card(new_tid)
+            self._schedule_save()
+            dlg.destroy()
+
+        entry.bind("<Return>", lambda e: save())
+
+        btns = ctk.CTkFrame(dlg, fg_color="transparent")
+        btns.pack(pady=(12, 0))
+        flat_btn(btns, "保存", save, C["blue"], C["blue_hover"],
+                 font_size=10, pady=5, padx=24).pack(side=tk.LEFT, padx=6)
+        flat_btn(btns, "取消", dlg.destroy, C["text_sec"], C["text_ter"],
+                 font_size=10, pady=5, padx=24).pack(side=tk.LEFT, padx=6)
+
+        dlg.wait_window()
+
+    def _indent_selected(self):
+        """选中项降为上一兄弟的最后一个子任务（Tab / 右键）"""
+        tid = self._get_selected_id()
+        if not tid or tid not in self.todos:
+            return
+        w = self.todos[tid]
+        parents = {t: x.parent_id for t, x in self.todos.items()}
+        sibs = sorted([t for t, p in parents.items() if p == w.parent_id],
+                      key=lambda t: self.todos[t]._order)
+        if tid not in sibs:
+            return
+        i = sibs.index(tid)
+        if i == 0:
+            return                          # 没有上一兄弟，无从降级
+        target = sibs[i - 1]
+        if not tree.can_adopt(parents, target, tid):
+            self._toast("已达最大层级（3 层）", "orange")
+            return
+        w.set_parent(target)
+        w._order = self._next_order         # 成为该父的最后一个子任务
+        self._next_order += 1
+        self._collapsed.discard(target)
+        self._refresh_view()
+        self._select_card(tid)
+        self._schedule_save()
+
+    def _outdent_selected(self):
+        """选中项提升：成为父节点的下一个兄弟（Shift+Tab / 右键）"""
+        tid = self._get_selected_id()
+        if not tid or tid not in self.todos:
+            return
+        w = self.todos[tid]
+        pid = w.parent_id
+        if pid is None or pid not in self.todos:
+            return
+        grandpa = self.todos[pid].parent_id
+        parents = {t: x.parent_id for t, x in self.todos.items()}
+        sibs = sorted([t for t, p in parents.items() if p == grandpa],
+                      key=lambda t: self.todos[t]._order)
+        i = sibs.index(pid)
+        nxt = sibs[i + 1] if i + 1 < len(sibs) else None
+        lo = self.todos[pid]._order
+        hi = self.todos[nxt]._order if nxt is not None else lo + 2
+        w.set_parent(grandpa)
+        if hi - lo >= 2:
+            w._order = (lo + hi) // 2       # 插到父与下一兄弟的空隙
+        else:
+            # 无空隙：w 紧跟父，其后兄弟整体后移（兄弟组内相对序不变）
+            w._order = lo + 1
+            for j, t in enumerate(sibs[i + 1:]):
+                self.todos[t]._order = hi + 1 + j
+        self._refresh_view()
+        self._select_card(tid)
+        self._schedule_save()
 
     def _select_card(self, tid):
         # 取消旧选中
@@ -989,33 +1246,25 @@ class MainApp:
         self._move_order(tid, 1)
 
     def _move_order(self, tid, direction):
-        # 找到当前 card 在 _cards 中的位置
-        cur_idx = None
-        for i, card in enumerate(self._cards):
-            if isinstance(card, TodoCard) and card.todo_widget.todo_id == tid:
-                cur_idx = i
-                break
-        if cur_idx is None:
+        """在兄弟列表内上移/下移（顶层限定同日期组）。"""
+        w = self.todos.get(tid)
+        if w is None:
             return
-
-        # 找相邻的 TodoCard
-        target_idx = cur_idx + direction
-        while 0 <= target_idx < len(self._cards):
-            if isinstance(self._cards[target_idx], TodoCard):
-                break
-            target_idx += direction
-
-        if not (0 <= target_idx < len(self._cards)):
+        if w.parent_id is None:
+            sibs = [x for x in self.todos.values()
+                    if x.parent_id is None
+                    and getattr(x, "_date", "") == getattr(w, "_date", "")]
+        else:
+            sibs = [x for x in self.todos.values()
+                    if x.parent_id == w.parent_id]
+        sibs.sort(key=lambda x: x._order)
+        i = next((j for j, x in enumerate(sibs) if x.todo_id == tid), None)
+        if i is None:
             return
-        target_card = self._cards[target_idx]
-        if not isinstance(target_card, TodoCard):
+        j = i + direction
+        if not (0 <= j < len(sibs)):
             return
-
-        # 交换 order
-        w1 = self.todos[tid]
-        w2 = self.todos[target_card.todo_widget.todo_id]
-        w1._order, w2._order = w2._order, w1._order
-
+        sibs[i]._order, sibs[j]._order = sibs[j]._order, sibs[i]._order
         self._refresh_view()
         self._select_card(tid)
         self._schedule_save()
@@ -1125,23 +1374,39 @@ class MainApp:
         w = self.todos.get(tid)
         if not w:
             return
-        if w.elapsed > 0 and not messagebox.askyesno(
-            "确认删除", f"确定删除「{w.text}」吗？\n已记录 {fmt_time(w.elapsed)}。",
-            parent=self.root):
-            return
-        # 保存撤销快照
-        snapshot = {
-            "id": w.todo_id, "text": w.text, "elapsed": w.elapsed,
-            "completed": w.completed, "visible": w.is_visible(),
-            "date": getattr(w, "_date", get_today_str()),
-            "order": w._order, "starred": w.starred,
-            "target_seconds": w.target_seconds, "reminded": w.reminded,
-        }
-        self._save_undo("delete", tid, snapshot)
-        if self.timer_panel.has_todo(tid):
-            self.timer_panel.remove_todo(tid)
-        self.todos.pop(tid, None)
-        w.destroy()
+        parents = {t: x.parent_id for t, x in self.todos.items()}
+        branch = tree.subtree_with_root(parents, tid)
+        n_kids = len(branch) - 1
+        total_elapsed = sum(self.todos[t].elapsed for t in branch)
+        if total_elapsed > 0 or n_kids > 0:
+            msg = (f"确定删除「{w.text}」及其 {n_kids} 个子任务吗？"
+                   if n_kids else f"确定删除「{w.text}」吗？")
+            if total_elapsed > 0:
+                msg += f"\n共记录 {fmt_time(total_elapsed)}。"
+            if not messagebox.askyesno("确认删除", msg, parent=self.root):
+                return
+        # 撤销快照：父先子后（恢复时按序重建引用）
+        snapshots = []
+        for t in [tid] + sorted(tree.descendants(parents, tid),
+                                key=lambda x: self.todos[x]._order):
+            x = self.todos[t]
+            snapshots.append({
+                "id": x.todo_id, "text": x.text, "elapsed": x.elapsed,
+                "completed": x.completed, "visible": x.is_visible(),
+                "date": getattr(x, "_date", get_today_str()),
+                "order": x._order, "starred": x.starred,
+                "target_seconds": x.target_seconds, "reminded": x.reminded,
+                "parent": x.parent_id,
+            })
+        self._save_undo("delete", tid, snapshots)
+        for t in branch:
+            x = self.todos.get(t)
+            if x is None:
+                continue
+            if self.timer_panel.has_todo(t):
+                self.timer_panel.remove_todo(t)
+            self.todos.pop(t, None)
+            x.destroy()
         self._selected_tid = None
         self._refresh_view()
         self._schedule_save()
@@ -1165,6 +1430,23 @@ class MainApp:
                     archive = json.load(f)
             except Exception:
                 archive = []
+
+        parents = {t: x.parent_id for t, x in self.todos.items()}
+        completed_set = set(completed_ids)
+        # 被归档节点的未完成后代上抛给最近的未归档祖先（保留未完结工作）
+        for tid in completed_ids:
+            for d in tree.descendants(parents, tid):
+                dw = self.todos.get(d)
+                if dw is None or dw.completed or d in completed_set:
+                    continue
+                cur, seen = parents.get(d), set()
+                while cur is not None and cur in completed_set \
+                        and cur not in seen:
+                    seen.add(cur)
+                    cur = parents.get(cur)
+                dw.parent_id = cur if cur in self.todos else None
+                dw._order = self._next_order
+                self._next_order += 1
 
         for tid in completed_ids:
             w = self.todos[tid]
@@ -1190,13 +1472,11 @@ class MainApp:
 
     def _start_all(self):
         saved_tid = self._selected_tid
-        for card in self._cards:
-            if isinstance(card, TodoCard):
-                w = card.todo_widget
-                if not w.completed:
-                    if not w.is_visible():
-                        self.timer_panel.add_todo(w)
-                    w.start()
+        for w in self.todos.values():   # 分页下 _cards 只是渲染窗口，须全量
+            if not w.completed:
+                if not w.is_visible():
+                    self.timer_panel.add_todo(w)
+                w.start()
         self.timer_panel.show()
         self._refresh_view()
         if saved_tid:
@@ -1204,9 +1484,8 @@ class MainApp:
 
     def _pause_all(self):
         saved_tid = self._selected_tid
-        for card in self._cards:
-            if isinstance(card, TodoCard):
-                card.todo_widget.pause()
+        for w in self.todos.values():
+            w.pause()
         self._refresh_view()
         if saved_tid:
             self._select_card(saved_tid)
@@ -1235,7 +1514,11 @@ class MainApp:
         g.configure(bg=C["blue"], highlightthickness=0, bd=0)
         body = ctk.CTkFrame(g, fg_color=C["surface"], corner_radius=RADIUS["card"])
         body.pack(fill=tk.BOTH, expand=True, padx=2)  # 2px 蓝边（圆角卡片浮于蓝边之上）
+        parents = {t: x.parent_id for t, x in self.todos.items()}
+        n_kids = len(tree.descendants(parents, tid))
         text = self.todos[tid].text
+        if n_kids:
+            text = f"{text}（含 {n_kids} 个子任务）"
         lbl = ctk.CTkLabel(body, text=f"✥ {text}", fg_color="transparent",
                            text_color=C["text"], font=(FONT, 10),
                            anchor="w", padx=10, pady=6)
@@ -1257,7 +1540,7 @@ class MainApp:
             self._drag_ghost = None
 
     def _on_drag_move(self, tid, y_root):
-        """移动拖拽虚影跟随光标，并实时刷新落点指示线。"""
+        """移动拖拽虚影跟随光标，并实时刷新落点反馈（三区：上/下=兄弟，中=子级）。"""
         if self._drag_ghost is not None:
             x = self.root.winfo_pointerx() + 14
             y = self.root.winfo_pointery() + 10
@@ -1265,66 +1548,86 @@ class MainApp:
                 self._drag_ghost.geometry(f"+{x}+{y}")
             except Exception:
                 pass
-        # 实时落点指示线（与 drop 用同一套计算，所见即所落）
-        res = self._drop_insert_index(self._drag_group_cards(tid), tid, y_root)
+        self._show_drop_feedback(self._resolve_drop(tid, y_root))
+
+    def _card_at_y(self, y_root):
+        """光标纵向所在的可见卡片（无则 None）"""
+        for c in self._cards:
+            if not isinstance(c, TodoCard):
+                continue
+            top = c.winfo_rooty()
+            h = c.winfo_height() or 1
+            if top - 2 <= y_root <= top + h + 2:
+                return c
+        return None
+
+    def _resolve_drop(self, dragged_tid, y_root):
+        """解析落点。返回 ("sibling", 目标id, 是否插到其上) /
+        ("child", 目标id, None) / None（无效落点，松手弹回）。"""
+        target = self._card_at_y(y_root)
+        if target is None:
+            return None
+        ttid = target.todo_widget.todo_id
+        dw = self.todos.get(dragged_tid)
+        tw = self.todos.get(ttid)
+        if dw is None or tw is None or ttid == dragged_tid:
+            return None
+        parents = {t: x.parent_id for t, x in self.todos.items()}
+        top = target.winfo_rooty()
+        h = target.winfo_height() or 1
+        rel = (y_root - top) / h
+        if rel < 0.25 or rel > 0.75:
+            # 兄弟插入：仅限同父；顶层维持同日期规则
+            if dw.parent_id != tw.parent_id:
+                return None
+            if (dw.parent_id is None
+                    and getattr(dw, "_date", "") != getattr(tw, "_date", "")):
+                return None
+            if ttid in tree.descendants(parents, dragged_tid):
+                return None
+            return ("sibling", ttid, rel < 0.25)
+        if not tree.can_adopt(parents, ttid, dragged_tid):
+            return None
+        return ("child", ttid, None)
+
+    def _show_drop_feedback(self, res):
+        """渲染落点反馈：兄弟=蓝线（与目标同缩进），子级=绿线右移一层+目标绿框"""
+        if self._drop_target_tid and self._drop_target_tid in self._card_cache:
+            self._card_cache[self._drop_target_tid].set_drop_target(False)
+        self._drop_target_tid = None
         if res is None:
             self._hide_drop_indicator()
+            return
+        kind, ttid, before = res
+        target = self._card_cache.get(ttid)
+        if target is None:
+            self._hide_drop_indicator()
+            return
+        top = target.winfo_rooty()
+        h = target.winfo_height() or 1
+        if kind == "child":
+            target.set_drop_target(True)
+            self._drop_target_tid = ttid
+            self._show_drop_indicator(target.winfo_rootx() + self.INDENT_PX,
+                                      top + h, C["green"],
+                                      target.winfo_width())
         else:
-            _, _, iy = res
-            self._show_drop_indicator(iy, tid)
+            self._show_drop_indicator(target.winfo_rootx(),
+                                      top if before else top + h, C["blue"],
+                                      target.winfo_width())
 
-    def _drag_group_cards(self, dragged_tid):
-        """被拖项所在 _date 分组的卡片列表（视觉顺序）。"""
-        if dragged_tid not in self.todos:
-            return []
-        d_date = getattr(self.todos[dragged_tid], "_date", get_today_str())
-        return [c for c in self._cards
-                if isinstance(c, TodoCard)
-                and getattr(c.todo_widget, "_date", "") == d_date]
-
-    def _drop_insert_index(self, group_cards, dragged_tid, y_root):
-        """返回 (remaining, insert_at, indicator_y_root) 或 None（无效落点/组太小）。
-
-        落点必须在分组垂直跨度内，否则视为跨组 → 弹回（与 _reorder_in_group 一致）。
-        """
-        if len(group_cards) < 2:
-            return None
-        if next((c for c in group_cards
-                 if c.todo_widget.todo_id == dragged_tid), None) is None:
-            return None
-        remaining = [c for c in group_cards if c.todo_widget.todo_id != dragged_tid]
-        gtop = group_cards[0].winfo_rooty()
-        last = group_cards[-1]
-        gbot = last.winfo_rooty() + (last.winfo_height() or 1)
-        if y_root < gtop - 2 or y_root > gbot + 2:
-            return None
-        insert_at = len(remaining)
-        for i, c in enumerate(remaining):
-            cy = c.winfo_rooty()
-            ch = c.winfo_height() or 1
-            if y_root < cy + ch // 2:
-                insert_at = i
-                break
-        if insert_at >= len(remaining):
-            prev = remaining[-1]
-            iy = prev.winfo_rooty() + (prev.winfo_height() or 1)
-        else:
-            iy = remaining[insert_at].winfo_rooty()
-        return remaining, insert_at, iy
-
-    def _show_drop_indicator(self, y_root, dragged_tid):
-        """显示/移动一条蓝色细线，标记当前松手后的插入位置。"""
+    def _show_drop_indicator(self, x, y_root, color, width):
+        """显示/移动一条细线，标记当前松手后的插入位置。"""
         if self._drop_ind is None:
             ind = tk.Toplevel(self.root)
             ind.overrideredirect(True)
             ind.attributes("-topmost", True)
-            ind.configure(bg=C["blue"], highlightthickness=0, bd=0)
+            ind.configure(bg=color, highlightthickness=0, bd=0)
             self._drop_ind = ind
-        group = self._drag_group_cards(dragged_tid)
-        x = group[0].winfo_rootx() if group else self.root.winfo_pointerx()
-        w = max((c.winfo_width() for c in group), default=240)
+        self._drop_ind.configure(bg=color)
         try:
-            self._drop_ind.geometry(f"{max(w, 80)}x3+{x}+{y_root - 1}")
+            self._drop_ind.geometry(
+                f"{max(int(width), 80)}x3+{int(x)}+{int(y_root) - 1}")
             self._drop_ind.deiconify()
             self._drop_ind.lift()
         except Exception:
@@ -1347,7 +1650,47 @@ class MainApp:
 
     def _on_drag_drop(self, tid, y_root):
         self._clear_drag_highlight()
-        self._reorder_in_group(tid, y_root)
+        res = self._resolve_drop(tid, y_root)
+        if res is None:
+            return
+        kind, ttid, before = res
+        w = self.todos[tid]
+        if kind == "child":
+            w.set_parent(ttid)
+            self._collapsed.discard(ttid)     # 目标自动展开
+            w._order = self._next_order       # 挂为目标最后一个子任务
+            self._next_order += 1
+        else:
+            sib_cards = self._sibling_cards_visual(tid)
+            cards = [c for c in sib_cards if c.todo_widget.todo_id != tid]
+            tidx = next((i for i, c in enumerate(cards)
+                         if c.todo_widget.todo_id == ttid), None)
+            if tidx is None:
+                return
+            ordered = [c.todo_widget for c in cards]
+            ordered.insert(tidx if before else tidx + 1, w)
+            # 用组内现有 _order 升序值重新分配（保持间距，避免重复值）
+            order_vals = sorted(getattr(x, "_order", 0) for x in ordered)
+            for x, ov in zip(ordered, order_vals):
+                x._order = ov
+        self._refresh_view()
+        self._select_card(tid)
+        self._schedule_save()
+
+    def _sibling_cards_visual(self, dragged_tid):
+        """被拖项的兄弟卡片（视觉序，含自身）。顶层=同日期组，嵌套=同父。"""
+        if dragged_tid not in self.todos:
+            return []
+        dw = self.todos[dragged_tid]
+        if dw.parent_id is None:
+            d_date = getattr(dw, "_date", get_today_str())
+            return [c for c in self._cards
+                    if isinstance(c, TodoCard)
+                    and c.todo_widget.parent_id is None
+                    and getattr(c.todo_widget, "_date", "") == d_date]
+        return [c for c in self._cards
+                if isinstance(c, TodoCard)
+                and c.todo_widget.parent_id == dw.parent_id]
 
     def _on_global_drag_release(self, event):
         """安全网：鼠标释放在卡片外（grab 未投递）也能清理拖拽高亮"""
@@ -1356,6 +1699,9 @@ class MainApp:
     def _clear_drag_highlight(self):
         self._destroy_drag_ghost()
         self._destroy_drop_indicator()
+        if self._drop_target_tid and self._drop_target_tid in self._card_cache:
+            self._card_cache[self._drop_target_tid].set_drop_target(False)
+        self._drop_target_tid = None
         if self._dragging_tid:
             for c in self._cards:
                 if (isinstance(c, TodoCard)
@@ -1363,35 +1709,6 @@ class MainApp:
                     c.set_dragging(False)
                     break
             self._dragging_tid = None
-
-    def _reorder_in_group(self, dragged_tid, y_root):
-        """在同 _date 分组内重排 _order；跨组落点 → 不变（弹回）。"""
-        if dragged_tid not in self.todos:
-            return
-        group_cards = self._drag_group_cards(dragged_tid)
-        res = self._drop_insert_index(group_cards, dragged_tid, y_root)
-        if res is None:
-            return
-        remaining, insert_at, _ = res
-
-        # 被拖卡片在原组（含自身、视觉顺序）中的索引，用于判断位置是否变化
-        cur_idx = next((i for i, c in enumerate(group_cards)
-                        if c.todo_widget.todo_id == dragged_tid), 0)
-        if insert_at == cur_idx:
-            return
-
-        dragged = self.todos[dragged_tid]
-        ordered = [c.todo_widget for c in remaining]
-        ordered.insert(insert_at, dragged)
-
-        # 用组内现有 _order 升序值重新分配（保持间距，避免重复值）
-        order_vals = sorted(getattr(w, "_order", 0) for w in ordered)
-        for w, ov in zip(ordered, order_vals):
-            w._order = ov
-
-        self._refresh_view()
-        self._select_card(dragged_tid)
-        self._schedule_save()
 
     # ── 计时提醒 ──────────────────────────────────────────
     def _center_over(self, dlg, w, h):
@@ -1538,6 +1855,7 @@ class MainApp:
             "panel_x": self.timer_panel.get_position()[0],
             "panel_y": self.timer_panel.get_position()[1],
             "autostart": self._autostart_intent,
+            "collapsed": sorted(t for t in self._collapsed if t in self.todos),
             "todos": [],
         }
         for w in self.todos.values():
@@ -1591,6 +1909,7 @@ class MainApp:
             panel_y = raw.get("panel_y", 100)
             if "autostart" in raw:
                 self._autostart_intent = bool(raw["autostart"])
+            self._collapsed = {str(t) for t in raw.get("collapsed", [])}
 
         self.timer_panel.set_position(panel_x, panel_y)
 
@@ -1610,7 +1929,15 @@ class MainApp:
                 last_started_at=item.get("last_started_at"),
                 target_seconds=item.get("target_seconds"),
                 reminded=item.get("reminded", False),
+                parent_id=item.get("parent"),
             )
+
+        # 装载自愈：外部手改 JSON 产生的悬空/环/超深 → 拍平为顶层
+        # （装载期直接赋值，不触发回调；仅影响显示用 parent 映射）
+        parents = {tid: w.parent_id for tid, w in self.todos.items()}
+        for tid, p in tree.normalize(parents).items():
+            if p != parents.get(tid):
+                self.todos[tid].parent_id = p
 
     # ── 系统托盘 / 窗口控制 ────────────────────────────
     def _tray_available(self):
@@ -1711,8 +2038,7 @@ class MainApp:
             ids = [ids]
         return [str(i) for i in ids]
 
-    @staticmethod
-    def _cli_brief(w):
+    def _cli_brief(self, w):
         if w.completed:
             status = "completed"
         elif w.running:
@@ -1724,7 +2050,11 @@ class MainApp:
                 "date": getattr(w, "_date", ""),
                 "elapsed_seconds": elapsed, "elapsed_hms": fmt_time(elapsed),
                 "status": status, "starred": w.starred,
-                "in_panel": w.is_visible(), "target_seconds": w.target_seconds}
+                "in_panel": w.is_visible(), "target_seconds": w.target_seconds,
+                "parent": w.parent_id,
+                "depth": tree.depth_of(
+                    {t: x.parent_id for t, x in self.todos.items()},
+                    w.todo_id)}
 
     def _cli_scope(self, p):
         """按 list/stats 共用的规则筛出待办集合，返回 (scope标签, [TodoWidget])"""
@@ -1742,16 +2072,44 @@ class MainApp:
                  if getattr(w, "_date", "") == scope]
         return scope, items
 
+    def _tree_ordered(self, tids):
+        """把 id 子集排成 DFS 森林序（日组倒序，重点→order；父必在子前）。
+        子集内父缺失的节点按顶层、以自身日期归组（与 GUI 显示序一致）。"""
+        wanted = set(tids)
+        parents = {t: w.parent_id for t, w in self.todos.items()}
+        parents = tree.normalize(parents)
+        # 子集外的中继父视同顶层，保证子集内父先子后
+        sub_parents = {t: (parents.get(t) if parents.get(t) in wanted else None)
+                       for t in wanted}
+        ch = tree.children_map(sub_parents)
+
+        def key(t):
+            w = self.todos[t]
+            return (not getattr(w, "starred", False), getattr(w, "_order", 0))
+
+        children_sorted = {p: sorted(ids, key=key) for p, ids in ch.items()}
+        roots_by_date = {}
+        for t, p in sub_parents.items():
+            if p is None:
+                d = getattr(self.todos[t], "_date", "") or get_today_str()
+                roots_by_date.setdefault(d, []).append(t)
+        out = []
+        for d in sorted(roots_by_date.keys(), reverse=True):
+            for t in tree.dfs_order(children_sorted,
+                                    sorted(roots_by_date[d], key=key)):
+                if t in wanted:
+                    out.append(t)
+        return out
+
     def _cli_list(self, p):
         scope, items = self._cli_scope(p)
         q = (p.get("search") or "").strip().lower()
         if q:
             items = [w for w in items if q in w.text.lower()]
-        items.sort(key=lambda w: (w.completed, not w.starred,
-                                  getattr(w, "_order", 0)))
-        return {"scope": scope, "count": len(items),
+        ordered = self._tree_ordered([w.todo_id for w in items])
+        return {"scope": scope, "count": len(ordered),
                 "search": q or None,
-                "todos": [self._cli_brief(w) for w in items]}
+                "todos": [self._cli_brief(self.todos[t]) for t in ordered]}
 
     def _cli_stats(self, p):
         scope, items = self._cli_scope(p)
@@ -1778,26 +2136,69 @@ class MainApp:
         text = (p.get("text") or "").strip()
         if not text:
             return {"ok": False, "error": "text 不能为空"}
+        parent = p.get("parent")
+        if parent in (None, "", "top", "null"):
+            parent = None
+        else:
+            parent = str(parent)
+            if parent not in self.todos:
+                return {"ok": False, "error": f"父任务不存在: {parent}"}
+            parents = {t: w.parent_id for t, w in self.todos.items()}
+            if not tree.can_adopt(parents, parent, "__new__"):
+                return {"ok": False, "error": "超过最大层级（3 层）"}
         tid = self._add_todo(text=text,
                              date=p.get("date") or get_today_str(),
-                             starred=bool(p.get("starred")), from_cli=True)
+                             starred=bool(p.get("starred")), from_cli=True,
+                             parent_id=parent)
+        if parent:
+            self._collapsed.discard(parent)
         return {"added": self._cli_brief(self.todos[tid])}
 
     def _cli_delete(self, p):
-        return {"results": [dict(self._cli_delete_one(i))
-                          for i in self._cli_ids(p)]}
+        # 逐条 try：批量 id 同枝时，祖先被删后 _cli_get 对后代报错，
+        # 不应让整条命令失败（前面已删除的保持已删除）
+        results = []
+        for i in self._cli_ids(p):
+            try:
+                results.append(dict(self._cli_delete_one(i)))
+            except Exception as e:
+                results.append({"id": i, "ok": False, "error": str(e)})
+        return {"results": results}
 
     def _cli_delete_one(self, tid):
-        p = {"id": tid}
-        w = self._cli_get(p)
+        w = self._cli_get({"id": tid})
         tid = w.todo_id
-        if self.timer_panel.has_todo(tid):
-            self.timer_panel.remove_todo(tid)
-        self.todos.pop(tid, None)
-        w.destroy()
+        parents = {t: x.parent_id for t, x in self.todos.items()}
+        branch = tree.subtree_with_root(parents, tid)   # 删整枝
+        for t in branch:
+            if self.timer_panel.has_todo(t):
+                self.timer_panel.remove_todo(t)
+            x = self.todos.pop(t, None)
+            if x is not None:
+                x.destroy()
         self._refresh_view()
         self._schedule_save()
-        return {"deleted": tid}
+        return {"deleted": tid, "count": len(branch)}
+
+    def _cli_reparent(self, p):
+        w = self._cli_get(p)
+        parent = p.get("parent")
+        if parent in (None, "", "top", "null"):
+            parent = None
+        else:
+            parent = str(parent)
+        parents = {t: x.parent_id for t, x in self.todos.items()}
+        if not tree.can_adopt(parents, parent, w.todo_id):
+            return {"ok": False,
+                    "error": "非法移动：目标不存在/成环/超过 3 层"}
+        w.set_parent(parent)
+        w._order = self._next_order
+        self._next_order += 1
+        if parent:
+            self._collapsed.discard(parent)
+        parents[w.todo_id] = parent
+        return {"reparented": w.todo_id, "parent": parent,
+                "depth": tree.depth_of(parents, w.todo_id)}
 
     def _cli_move(self, p):
         w = self._cli_get(p)
@@ -1847,20 +2248,33 @@ class MainApp:
                           for i in self._cli_ids(p)]}
 
     def _cli_start_one(self, tid):
-        p = {"id": tid}
-        w = self._cli_get(p)
-        w.start()
-        return {"id": w.todo_id, "status": "running"}
+        w = self._cli_get({"id": tid})
+        if w.completed:
+            return {"id": tid, "ok": False,
+                    "error": "已完成的待办不能计时"}
+        already = w.running
+        if not already:
+            w.start()
+            if not w.is_visible():
+                # 与 GUI 启动路径一致: 加入计时面板, 让"启动"可见
+                w.show()
+                self.timer_panel.add_todo(w)
+                self._refresh_view()
+                self._schedule_save()
+        return {"id": w.todo_id, "status": "running",
+                "already_running": already}
 
     def _cli_pause(self, p):
         return {"results": [dict(self._cli_pause_one(i))
                           for i in self._cli_ids(p)]}
 
     def _cli_pause_one(self, tid):
-        p = {"id": tid}
-        w = self._cli_get(p)
+        w = self._cli_get({"id": tid})
+        was = w.running
         w.pause()
-        return {"id": w.todo_id, "status": "paused"}
+        return {"id": w.todo_id,
+                "status": "paused" if not w.running else "running",
+                "was_running": was}
 
     def run(self):
         self.root.mainloop()

@@ -24,7 +24,10 @@ C = {
 FONT = "Microsoft YaHei"
 
 # 应用版本号（安装器升级检测 + 顶栏显示）。改动后同步 installer/installer.iss 的 AppVersion。
-APP_VERSION = "1.1.2"
+APP_VERSION = "1.2.0"
+
+# 分页：列表视图一次渲染的最大卡片条目数，超出尾部走「加载更多」
+PAGE_SIZE = 30
 
 # 圆角（customtkinter corner_radius 用）—— spec §5.2
 RADIUS = {

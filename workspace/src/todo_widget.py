@@ -6,7 +6,8 @@ class TodoWidget:
     """待办计时数据模型 —— 纯状态与计时逻辑，不持有 UI"""
 
     def __init__(self, todo_id, text, elapsed=0, completed=False,
-                 order=0, starred=False, date=None, target_seconds=None):
+                 order=0, starred=False, date=None, target_seconds=None,
+                 parent_id=None):
         self.todo_id = todo_id
         self.text = text
         self.elapsed = elapsed
@@ -17,6 +18,7 @@ class TodoWidget:
         self._order = order
         self.starred = starred
         self._date = date
+        self.parent_id = parent_id   # 父任务 id；None=顶层主任务
         self._in_panel = False
         self._callbacks = []  # observer list, 替代单一 _change_callback
         self._version = 0     # 渲染版本号：每次状态变更 +1，UI 层据此跳过无变化重绘
@@ -74,6 +76,11 @@ class TodoWidget:
 
     def set_date(self, new_date):
         self._date = new_date
+        self._fire_change()
+
+    def set_parent(self, new_parent_id):
+        """挂到新父任务下（None=顶层）。合法性(成环/深度)由调用方校验。"""
+        self.parent_id = new_parent_id
         self._fire_change()
 
     # ── 面板可见性 ──
@@ -137,6 +144,7 @@ class TodoWidget:
         return {
             "id": self.todo_id,
             "text": self.text,
+            "parent": self.parent_id,
             "elapsed": self.get_live_elapsed(),
             "completed": self.completed,
             "x": 0,

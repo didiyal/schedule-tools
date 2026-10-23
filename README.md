@@ -16,16 +16,16 @@ Windows 桌面悬浮待办计时工具 —— 主窗口管理待办列表，统�
 - 关闭面板后双击待办卡片即可重新打开
 
 ### 待办管理（主窗口 560×660）
-- **日期导航**：‹ › 翻页 + "今天" 快捷跳转，显示当日合计耗时
-- **三态筛选**：
-  - 未完成 — 今日待办 + 跨日未完成（按日期分组）
-  - 已完成 — 所有完成项按日期倒序分组（跨日完成归到完成当天）
-  - 全部 — 所有待办按日期倒序分组
-- **完成日归档**：跨日待办完成时自动归到完成当天
+- **日期导航**：‹ › 翻页 + "今天" 快捷跳转
+- **筛选勾选**：默认显示全部；勾选「未完成」/「已完成」缩小范围，可叠加（双勾 = 全部）
+- **任务树**：任务可挂子任务（最多 3 层），右键「添加子任务」、Tab/Shift+Tab 降级/提升、拖拽三区落点（上/下 = 同父兄弟插入，中间 = 成为子任务）；父卡片显示子进度 `n/m` 与折叠箭头
+- **每日一棵树**：按日期倒序分组，子任务永远挂在父任务下（跨日显示日期角标），完成与未完成同树直观可见
+- **完成态变绿**：完成的任务绿底灰字 + `[已完成]`，位置不移动
+- **分页加载**：每页 30 张卡片，尾部「加载更多」+ 滚动到底自动追加，大列表不卡顿
 - **重点标记 ★**：优先处理，重点项优先排序
-- **拖拽排序**：直接拖动卡片在同日期组内重排，5px 阈值区分点击（↑↓ 按钮仍可精确操作）
+- **拖拽排序**：同父兄弟内重排 + 拖到卡片中部改为其子任务，成环/超层自动弹回（↑↓ 按钮仍可精确操作）
 - **计时提醒 ⏰**：为待办设置目标时长（5/15/25/60 分钟预设或自定义），达成时弹窗+声音+托盘通知，卡片实时显示剩余时间
-- **序号排序**：↑↓ 上移下移，点击卡片选中后连续操作
+- **序号排序**：↑↓ 上移下移（兄弟列表内），点击卡片选中后连续操作
 - **文字搜索**：实时关键词过滤，300ms 防抖
 - **悬停提示**：长文字卡片停留 500ms 显示完整文本
 
@@ -49,25 +49,28 @@ Windows 桌面悬浮待办计时工具 —— 主窗口管理待办列表，统�
 
 ```bash
 cd tools/workspace
-python todo_cli.py list [--date YYYY-MM-DD | --all | --from A --to B] [--search 关键词] [--json]
+python todo_cli.py list [--date YYYY-MM-DD | --all | --from A --to B] [--search 关键词] [--tree] [--json]
 python todo_cli.py search 关键词 [--json]              # 跨全部日期搜索
 python todo_cli.py stats [--date ... | --all] [--top N] [--json]   # 耗时/数量统计
-python todo_cli.py add "任务文本" [--date YYYY-MM-DD] [--star]
-python todo_cli.py done <id> [id...] | undo <id> [id...] | delete <id> [id...]  # 支持批量
+python todo_cli.py add "任务文本" [--date YYYY-MM-DD] [--star] [--parent 父id]
+python todo_cli.py done <id> [id...] | undo <id> [id...] | delete <id> [id...]  # 批量; delete 连同子任务整枝删除
 python todo_cli.py move <id> YYYY-MM-DD | rename <id> "新文本" | star <id>
+python todo_cli.py reparent <id> (--parent 父id | --top)  # 移动整枝（成环/超3层拒绝）
 python todo_cli.py start <id> | pause <id>
 ```
 
-GUI 运行中走本地 IPC（改动立即显示在界面）；未运行时直接读写
-`data/todos.json`。打包版：`待办计时器.exe cli list --json`。
+`list` 输出含 `parent` / `depth` 字段，按 DFS 森林序排列（与界面一致）；
+`--tree` 树形缩进显示。GUI 运行中走本地 IPC（改动立即显示在界面）；未运行时
+直接读写 `data/todos.json`。打包版：`待办计时器.exe cli list --tree --json`。
 ### 键盘快捷键
 
 | 按键 | 操作 |
 |------|------|
 | ↑ ↓ | 导航选中卡片 |
 | Space | 标记完成 / 取消完成 |
-| Delete | 删除选中（有计时则确认） |
-| Ctrl+Z | 撤销上一步操作 |
+| Tab / Shift+Tab | 降为子任务 / 提升层级 |
+| Delete | 删除选中（连同子任务，有计时则确认） |
+| Ctrl+Z | 撤销上一步操作（删整枝可整枝恢复） |
 
 ### 底部按钮
 - 第一行：▶ 全部开始 · ⏸ 全部暂停 · ★ 标重点 · ✓ 标记完成 · ✎ 编辑 · 📅 改期
@@ -92,10 +95,11 @@ tools/
 │   ├── main.py              # 入口：DPI 感知 → MainApp.run()；`main.py cli` → 命令行
 │   ├── todo_cli.py          # CLI 客户端（argparse + IPC/降级直读写）
 │   └── src/
-│       ├── main_app.py      # 主窗口控制器 — CRUD/渲染/筛选/搜索/持久化
+│       ├── main_app.py      # 主窗口控制器 — CRUD/树渲染/筛选/分页/搜索/持久化
 │       ├── timer_panel.py   # 统一计时悬浮面板 — 顶部吸附、200ms tick
-│       ├── todo_widget.py   # 待办数据模型 — 纯状态+计时逻辑，不持有 UI
-│       ├── todo_card.py     # 列表卡片 UI — TodoCard/SectionHeader/EmptyHint
+│       ├── todo_widget.py   # 待办数据模型 — 纯状态+计时逻辑+parent，不持有 UI
+│       ├── tree.py          # 任务树纯函数（parent 映射，GUI/headless 共用）
+│       ├── todo_card.py     # 列表卡片 UI — TodoCard/SectionHeader/EmptyHint/LoadMoreHint
 │       ├── tray.py          # 系统托盘 + 开机自启（pystray）
 │       ├── cli_server.py    # 本地 CLI/Agent 服务（GUI 内嵌，127.0.0.1 TCP）
 │       ├── cli_headless.py  # GUI 未运行时 CLI 的直接读写路径
@@ -165,10 +169,12 @@ rm -rf ../build_tmp 待办计时器.spec
 {
   "panel_x": 1492,
   "panel_y": 0,
+  "collapsed": [],
   "todos": [
     {
       "id": "1",
       "text": "完成 AI 模型测试",
+      "parent": null,
       "elapsed": 6474,
       "completed": false,
       "x": 0, "y": 0,
@@ -183,6 +189,8 @@ rm -rf ../build_tmp 待办计时器.spec
 }
 ```
 
+- `parent` = 父任务 id（`null` = 顶层主任务；v1.2 纯增量字段，旧版本自动忽略）
+- `collapsed` = 折叠的任务 id 列表（树展开状态持久化）
 - `visible` = `true` 表示该待办在计时面板中
 - `running` + `last_started_at` 用于运行状态恢复
 - `date` 在 `set_complete()` 时自动更新为完成当天

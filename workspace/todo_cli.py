@@ -7,15 +7,17 @@ GUI 未运行时降级为直接读写 data/todos.json（同语义、原子写）
   python todo_cli.py                                   # 列出今日待办
   python todo_cli.py list [--date YYYY-MM-DD | --all |
                            --from YYYY-MM-DD --to YYYY-MM-DD]
-                         [--search 关键词] [--json]
+                         [--search 关键词] [--tree] [--json]
   python todo_cli.py search 关键词 [--json]            # 跨全部日期搜索
   python todo_cli.py stats [--date ... | --all | --from ... --to ...]
                           [--search 关键词] [--top N] [--json]
-  python todo_cli.py add "任务文本" [--date YYYY-MM-DD] [--star] [--json]
-  python todo_cli.py delete <id> [id ...] [--json]     # 支持批量
+  python todo_cli.py add "任务文本" [--date YYYY-MM-DD] [--star]
+                        [--parent 父id] [--json]
+  python todo_cli.py delete <id> [id ...] [--json]     # 连同子任务整枝删除
   python todo_cli.py done <id> [id ...] | undo <id> [id ...]
   python todo_cli.py start <id> [id ...] | pause <id> [id ...]
   python todo_cli.py move <id> <YYYY-MM-DD>
+  python todo_cli.py reparent <id> (--parent 父id | --top)  # 移动整枝
   python todo_cli.py rename <id> "新文本"
   python todo_cli.py star <id> [--on | --off]
 
@@ -113,9 +115,20 @@ def execute_batch(verb, ids, args, extra=None):
         payload.update(extra or {})
         return execute(payload, args)
     if not args.headless:
-        payload = {"cmd": verb, "id": ids}
-        payload.update(extra or {})
-        return execute(payload, args)
+        if args.port:
+            import os
+            os.environ["TODOTIMER_CLI_PORT"] = str(args.port)
+        try:
+            payload = {"cmd": verb, "id": ids}
+            payload.update(extra or {})
+            return send_ipc(payload)
+        except ConnectionRefusedError:
+            pass  # GUI 未运行 → 降级 headless 逐条（不能带 id 列表直写）
+        except (socket.timeout, ConnectionError) as e:
+            return {"ok": False,
+                    "error": f"GUI 在线但无响应({e})，未执行任何写操作"}
+        except OSError as e:
+            return {"ok": False, "error": f"IPC 连接失败: {e}"}
     # headless 批量
     from src.main_app import SAVE_FILE
     raw = load_raw(SAVE_FILE)
@@ -142,15 +155,20 @@ def execute_batch(verb, ids, args, extra=None):
 STATUS_CN = {"running": "运行中", "paused": "暂停", "completed": "已完成"}
 
 
-def print_list(resp):
+def print_list(resp, tree_mode=False):
     scope = resp["scope"]
     label = "全部待办" if scope == "all" else f"待办 ({scope})"
     suffix = f" · 关键词「{resp['search']}」" if resp.get("search") else ""
     print(f"{label} — {resp['count']} 项{suffix}")
     for it in resp["todos"]:
         mark = "★ " if it["starred"] else ""
-        print(f"  #{it['id']:<4} [{STATUS_CN[it['status']]}] {mark}"
-              f"{it['text']}  {it['elapsed_hms']}")
+        parent = f" →#{it['parent']}" if it.get("parent") else ""
+        indent = ""
+        if tree_mode:
+            depth = int(it.get("depth") or 0)
+            indent = "    " * depth + ("└─ " if depth else "")
+        print(f"  {indent}#{it['id']:<4} [{STATUS_CN[it['status']]}] {mark}"
+              f"{it['text']}  {it['elapsed_hms']}{parent}")
 
 
 def print_stats(resp):
@@ -177,7 +195,7 @@ def print_result(resp, args):
         return
     cmd = resp.get("cmd")
     if cmd == "list":
-        print_list(resp)
+        print_list(resp, tree_mode=getattr(args, "tree", False))
         return
     if cmd == "stats":
         print_stats(resp)
@@ -201,9 +219,16 @@ def print_result(resp, args):
     # 单条写命令的人性化回显
     if "added" in resp:
         it = resp["added"]
-        print(f"已添加 #{it['id']} {it['text']} (日期 {it['date']})")
+        at = f"，父任务 #{it['parent']}" if it.get("parent") else ""
+        print(f"已添加 #{it['id']} {it['text']} (日期 {it['date']}{at})")
     elif "deleted" in resp:
-        print(f"已删除 #{resp['deleted']}")
+        n = resp.get("count", 1)
+        print(f"已删除 #{resp['deleted']}"
+              + (f"（连同 {n - 1} 个子任务）" if n > 1 else ""))
+    elif "reparented" in resp:
+        tgt = resp.get("parent")
+        print(f"#{resp['reparented']} 已移动到 "
+              + (f"#{tgt} 下" if tgt else "顶层"))
     elif "moved" in resp:
         print(f"#{resp['moved']} 已改期至 {resp['date']}")
     elif "done" in resp:
@@ -253,6 +278,8 @@ def build_parser():
 
     p = sub.add_parser("list", help="列出待办 (默认今日，可搜索/范围)")
     _add_scope_args(p)
+    p.add_argument("--tree", action="store_true",
+                   help="按树形缩进显示（依据 parent/depth）")
     _add_json(p)
 
     p = sub.add_parser("search", help="跨全部日期的关键词搜索")
@@ -264,13 +291,15 @@ def build_parser():
     p.add_argument("--top", type=int, default=5, help="耗时排行条数 (默认 5)")
     _add_json(p)
 
-    p = sub.add_parser("add", help="新增待办")
+    p = sub.add_parser("add", help="新增待办（默认顶层主任务）")
     p.add_argument("text", help="任务文本")
     p.add_argument("--date", default=None, help="日期 (默认今天)")
     p.add_argument("--star", action="store_true", help="标为重点")
+    p.add_argument("--parent", default=None, help="父任务 id（创建为子任务）")
     _add_json(p)
 
-    for name, help_ in (("delete", "删除待办"), ("done", "标记完成"),
+    for name, help_ in (("delete", "删除待办（连同子任务整枝删除）"),
+                        ("done", "标记完成"),
                         ("undo", "取消完成"), ("start", "开始计时"),
                         ("pause", "暂停计时"), ("star", "设置/取消重点")):
         p = sub.add_parser(name, help=help_)
@@ -283,6 +312,13 @@ def build_parser():
     p = sub.add_parser("move", help="改期")
     p.add_argument("id")
     p.add_argument("date", help="目标日期 (YYYY-MM-DD)")
+    _add_json(p)
+
+    p = sub.add_parser("reparent", help="把任务（连同子任务）挂到别的父任务下")
+    p.add_argument("id")
+    g = p.add_mutually_exclusive_group(required=True)
+    g.add_argument("--parent", default=None, help="新父任务 id")
+    g.add_argument("--top", action="store_true", help="提为顶层主任务")
     _add_json(p)
 
     p = sub.add_parser("rename", help="重命名")
@@ -332,9 +368,14 @@ def payload_from_args(args):
         if args.date:
             p["date"] = _norm_date(args.date)
         p["starred"] = args.star
+        if args.parent:
+            p["parent"] = args.parent
     elif cmd == "move":
         p["id"] = args.id
         p["date"] = args.date
+    elif cmd == "reparent":
+        p["id"] = args.id
+        p["parent"] = None if args.top else args.parent
     elif cmd == "rename":
         p["id"] = args.id
         p["text"] = args.text

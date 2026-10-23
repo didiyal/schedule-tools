@@ -23,12 +23,20 @@ class TodoCard(ctk.CTkFrame):
     需随卡片状态（默认/选中/悬停）同步 —— 统一由 _apply_fg 完成。
     """
 
-    def __init__(self, parent, todo_widget, seq=0, show_date=False, **kw):
+    def __init__(self, parent, todo_widget, seq=0, show_date=False, depth=0,
+                 expandable=False, expanded=True, dim=False, progress="", **kw):
         super().__init__(parent, fg_color=C["surface"], corner_radius=RADIUS["card"],
                          cursor="hand2", **kw)
         self.todo_widget = todo_widget
         w = todo_widget
         self._seq = seq
+        self._depth = depth
+        self._indent = depth * 18    # 期望缩进，pack 后由 _apply_indent 落地
+        self._applied_indent = None
+        self._expandable = expandable
+        self._expanded = expanded
+        self._dim = dim
+        self._progress = progress
 
         # ── 左侧色条 ──
         self.accent = tk.Frame(self, bg=self._accent_color(w), width=3)
@@ -52,6 +60,11 @@ class TodoCard(ctk.CTkFrame):
         icons.pack(side=tk.LEFT)
         self._plain.append(icons)
 
+        # ▸/▾ 折叠箭头（无子任务时零宽；点击只切换折叠、不选中卡片）
+        exp_text = ("▾" if expanded else "▸") if expandable else ""
+        self.exp_lbl = plabel(icons, exp_text, C["text_ter"], (FONT, 10))
+        self.exp_lbl.pack(side=tk.LEFT)
+
         # ① 序号
         seq_text = _circled(seq) if seq > 0 else ""
         self.seq_lbl = plabel(icons, seq_text, C["text_sec"], (FONT, 12))
@@ -63,6 +76,10 @@ class TodoCard(ctk.CTkFrame):
         self.star_lbl = plabel(icons, star_text, star_fg, (FONT, 12))
         self.star_lbl.pack(side=tk.LEFT)
 
+        # n/m 子任务进度（有子任务时；完成态整枝变绿，进度一眼可见）
+        self.prog_lbl = plabel(icons, progress, C["text_ter"], (FONT, 10))
+        self.prog_lbl.pack(side=tk.LEFT)
+
         # 间距
         spacer = tk.Frame(content, bg=C["surface"], width=8)
         spacer.pack(side=tk.LEFT)
@@ -70,8 +87,7 @@ class TodoCard(ctk.CTkFrame):
 
         # 文字（可伸展）
         is_hidden = not w.is_visible()
-        text_fg = C["text_ter"] if is_hidden else C["text"]
-        self.text_lbl = plabel(content, w.text, text_fg, (FONT, 13), anchor="w")
+        self.text_lbl = plabel(content, w.text, self._text_fg(), (FONT, 13), anchor="w")
         self.text_lbl.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
         # 长文字悬浮提示
@@ -115,6 +131,7 @@ class TodoCard(ctk.CTkFrame):
         # ── 点击 / 悬停 / 拖拽 ──
         self._selected = False
         self._dragging = False
+        self._drop_target = False
         self._fg = C["surface"]     # 当前底色（CTk 同值 configure 也会重绘，需守卫）
         self._rv = None             # 已渲染的数据版本 (widget, _version, starred, visible)
         self._drag_start = None    # 拖拽起点 (x_root, y_root)
@@ -138,6 +155,11 @@ class TodoCard(ctk.CTkFrame):
         # 使后续 refresh() 在数据未变时可被版本守卫整体跳过
         self._rv = (w, w._version, w.starred, w.is_visible())
         self.update_reminder()
+        # 折叠箭头点击独立于「选中卡片」——替换子控件统一绑定的 _on_click。
+        # Double 必须一并接管：Tk 对 500ms 内的第二次 press 只发最特异的
+        # <Double-Button-1>，否则快速连点箭头会误触「双击加入计时面板」。
+        self.exp_lbl.bind("<Button-1>", self._on_exp_click)
+        self.exp_lbl.bind("<Double-Button-1>", self._on_exp_click)
 
     @staticmethod
     def _all_children(widget):
@@ -158,11 +180,72 @@ class TodoCard(ctk.CTkFrame):
             return C["blue"]
         return C["border"]
 
+    def _base_fg(self):
+        """静态底色：选中(蓝) > 完成(绿) > 白。悬停只属于未完成卡。"""
+        if self._selected:
+            return C["blue_light"]
+        if self.todo_widget.completed:
+            return C["green_light"]
+        return C["surface"]
+
+    def _text_fg(self):
+        w = self.todo_widget
+        if self._dim or not w.is_visible() or w.completed:
+            return C["text_ter"]
+        return C["text"]
+
     def set_selected(self, selected):
         if self._selected == selected:
             return
         self._selected = selected
-        self._apply_fg(C["blue_light"] if selected else C["surface"])
+        self._apply_fg(self._base_fg())
+
+    def set_indent(self, px):
+        """树缩进：卡片整体左移（pack padx 左边距）。pack 前只记录，
+        pack 后由后续 set_indent / _sync_card 再落地。"""
+        self._indent = px
+        self._apply_indent()
+
+    def _apply_indent(self):
+        if self._indent == self._applied_indent:
+            return
+        try:
+            self.pack_configure(padx=(self._indent, 0))
+            self._applied_indent = self._indent
+        except tk.TclError:
+            pass
+
+    def set_expand(self, expandable, expanded):
+        """折叠箭头状态（有子任务才显示 ▸/▾）"""
+        if self._expandable == expandable and self._expanded == expanded:
+            return
+        self._expandable, self._expanded = expandable, expanded
+        self.exp_lbl.configure(
+            text=("▾" if expanded else "▸") if expandable else "")
+
+    def set_progress(self, text):
+        """n/m 子任务进度（无子任务为空串）"""
+        if self._progress == text:
+            return
+        self._progress = text
+        self.prog_lbl.configure(text=text)
+
+    def set_dim(self, dim):
+        """谓词未命中但作为祖先链保留时弱显（灰字）"""
+        if self._dim == dim:
+            return
+        self._dim = dim
+        self.text_lbl.configure(fg=self._text_fg())
+
+    def set_drop_target(self, on):
+        """拖拽「成为子级」的目标高亮（绿色边框）"""
+        if self._drop_target == on:
+            return
+        self._drop_target = on
+        if on:
+            self.configure(border_width=2, border_color=C["green"])
+        else:
+            self.configure(border_width=0, border_color=C["surface"])
 
     def _apply_fg(self, color):
         """设置卡片底色，同值跳过（CTk configure 同值也触发整卡重绘）。
@@ -223,15 +306,22 @@ class TodoCard(ctk.CTkFrame):
         if hasattr(self, "callback_right"):
             self.callback_right(self.todo_widget.todo_id, event)
 
+    def _on_exp_click(self, event):
+        """折叠/展开：只切换，不选中卡片"""
+        if hasattr(self, "callback_toggle_expand"):
+            self.callback_toggle_expand(self.todo_widget.todo_id)
+        return "break"
+
     def _on_enter(self, event):
-        if event.widget is not self or self._selected or self._drag_active:
+        if (event.widget is not self or self._selected or self._drag_active
+                or self.todo_widget.completed):
             return
         self._apply_fg(C["bg"])
 
     def _on_leave(self, event):
         if event.widget is not self or self._selected or self._drag_active:
             return
-        self._apply_fg(C["surface"])
+        self._apply_fg(self._base_fg())
 
     def set_sequence(self, seq):
         if self._seq == seq:
@@ -285,7 +375,7 @@ class TodoCard(ctk.CTkFrame):
         if self._rv == rv:
             return
         self._rv = rv
-        self._apply_fg(C["blue_light"] if self._selected else C["surface"])
+        self._apply_fg(self._base_fg())
         self.accent.configure(bg=self._accent_color(w))
 
         self.seq_lbl.configure(text=_circled(self._seq) if self._seq > 0 else "")
@@ -295,8 +385,7 @@ class TodoCard(ctk.CTkFrame):
         self.star_lbl.configure(text=star_text, fg=star_fg)
 
         is_hidden = not w.is_visible()
-        text_fg = C["text_ter"] if is_hidden else C["text"]
-        self.text_lbl.configure(text=w.text, fg=text_fg)
+        self.text_lbl.configure(text=w.text, fg=self._text_fg())
 
         time_fg = C["strikethrough"] if w.completed else (
             C["text_ter"] if is_hidden else C["text"])
@@ -340,3 +429,17 @@ class EmptyHint(tk.Frame):
         tk.Label(self, text=text, bg=bg, fg=C["text_ter"],
                  font=(FONT, 10)).pack()
         tk.Frame(self, bg=bg, height=12).pack(fill=tk.X)
+
+
+class LoadMoreHint(tk.Frame):
+    """分页「加载更多」按钮（纯 tk，样式同 EmptyHint）"""
+
+    def __init__(self, parent, text, command, **kw):
+        bg = C["bg"]
+        super().__init__(parent, bg=bg, **kw)
+        tk.Frame(self, bg=bg, height=10).pack(fill=tk.X)
+        btn = tk.Label(self, text=text, bg=C["surface"], fg=C["text_sec"],
+                       font=(FONT, 10), cursor="hand2", padx=22, pady=7)
+        btn.pack()
+        btn.bind("<Button-1>", lambda e: command())
+        tk.Frame(self, bg=bg, height=10).pack(fill=tk.X)

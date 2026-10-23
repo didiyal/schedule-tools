@@ -9,7 +9,7 @@
 ;   * 卸载时弹窗: 可选是否一并删除待办数据
 
 #define MyAppName      "待办计时器"
-#define MyAppVersion   "1.1.2"
+#define MyAppVersion   "1.2.0"
 #define MyAppExeName   "待办计时器.exe"
 #define MyAppSourceExe "..\待办计时器.exe"
 
