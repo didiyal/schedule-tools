@@ -68,4 +68,22 @@ public static class TodoStore
         try { return JsonDocument.Parse(File.ReadAllText(file)); }
         catch { return null; }
     }
+
+    /// <summary>archive.json 是纯数组（对齐 Python 版），坏文件按空数组处理。</summary>
+    public static List<TodoItem> LoadArchive(string path)
+    {
+        if (!File.Exists(path)) return new List<TodoItem>();
+        try
+        {
+            return JsonSerializer.Deserialize<List<TodoItem>>(File.ReadAllText(path), ReadOpts) ?? new();
+        }
+        catch { return new List<TodoItem>(); }
+    }
+
+    public static void SaveArchive(string path, List<TodoItem> archive)
+    {
+        var dir = Path.GetDirectoryName(path);
+        if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+        File.WriteAllText(path, JsonSerializer.Serialize(archive, WriteOpts), new UTF8Encoding(false));
+    }
 }

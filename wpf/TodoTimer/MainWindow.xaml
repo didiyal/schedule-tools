@@ -38,23 +38,70 @@
                 </StackPanel>
             </DockPanel>
         </Border>
-        <!-- 底部：统计 -->
-        <Border DockPanel.Dock="Bottom" Background="#FFFFFF" Padding="12,6">
-            <TextBlock Text="{Binding StatText}" Foreground="#8A919F" FontSize="11"/>
+        <!-- 输入栏：新建主任务 -->
+        <Border DockPanel.Dock="Top" Background="#FFFFFF" Padding="12,0,12,8">
+            <DockPanel>
+                <Button DockPanel.Dock="Right" Content="添加" Width="64" Height="30"
+                        Command="{Binding AddCommand}"/>
+                <TextBox VerticalContentAlignment="Center" FontSize="13"
+                         Text="{Binding NewTodoText, UpdateSourceTrigger=PropertyChanged}">
+                    <TextBox.InputBindings>
+                        <KeyBinding Key="Enter" Command="{Binding AddCommand}"/>
+                    </TextBox.InputBindings>
+                </TextBox>
+            </DockPanel>
         </Border>
-        <!-- 列表（虚拟化） -->
-        <ListBox ItemsSource="{Binding Rows}"
+        <!-- 底部：统计 + 提示 -->
+        <Border DockPanel.Dock="Bottom" Background="#FFFFFF" Padding="12,6">
+            <StackPanel Orientation="Horizontal">
+                <TextBlock Text="{Binding StatText}" Foreground="#8A919F" FontSize="11"/>
+                <TextBlock Text="{Binding Toast}" Foreground="#E8842C" FontSize="11" Margin="12,0,0,0">
+                    <TextBlock.Style>
+                        <Style TargetType="TextBlock">
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding Toast}" Value="">
+                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </TextBlock.Style>
+                </TextBlock>
+            </StackPanel>
+        </Border>
+        <!-- 列表（虚拟化 + 选中 + 拖拽 + 快捷键） -->
+        <ListBox x:Name="List" ItemsSource="{Binding Rows}"
                  Background="Transparent" BorderThickness="0" Padding="8,4"
                  HorizontalContentAlignment="Stretch"
                  ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                  VirtualizingPanel.IsVirtualizing="True"
-                 VirtualizingPanel.VirtualizationMode="Recycling">
+                 VirtualizingPanel.VirtualizationMode="Recycling"
+                 SelectedValuePath="Todo.Id"
+                 SelectedValue="{Binding SelectedId}"
+                 AllowDrop="True"
+                 PreviewMouseLeftButtonDown="List_PreviewMouseLeftButtonDown"
+                 PreviewMouseMove="List_PreviewMouseMove"
+                 DragOver="List_DragOver"
+                 DragLeave="List_DragLeave"
+                 Drop="List_Drop">
+            <ListBox.InputBindings>
+                <KeyBinding Key="Tab" Command="{Binding IndentSelectedCommand}"/>
+                <KeyBinding Key="Tab" Modifiers="Shift" Command="{Binding OutdentSelectedCommand}"/>
+                <KeyBinding Key="Delete" Command="{Binding DeleteSelectedCommand}"/>
+                <KeyBinding Key="Z" Modifiers="Control" Command="{Binding UndoSelectedCommand}"/>
+            </ListBox.InputBindings>
             <ListBox.ItemContainerStyle>
                 <Style TargetType="ListBoxItem">
                     <Setter Property="Template">
                         <Setter.Value>
                             <ControlTemplate TargetType="ListBoxItem">
-                                <ContentPresenter/>
+                                <Border x:Name="Bd" Background="Transparent" CornerRadius="4">
+                                    <ContentPresenter/>
+                                </Border>
+                                <ControlTemplate.Triggers>
+                                    <Trigger Property="IsSelected" Value="True">
+                                        <Setter TargetName="Bd" Property="Background" Value="#E8F0FE"/>
+                                    </Trigger>
+                                </ControlTemplate.Triggers>
                             </ControlTemplate>
                         </Setter.Value>
                     </Setter>
@@ -77,11 +124,22 @@
                                 </Style>
                             </TextBlock.Style>
                         </TextBlock>
-                        <!-- 任务卡 -->
-                        <Border Margin="{Binding CardMargin}" Padding="10,7" CornerRadius="6"
-                                Background="#FFFFFF">
+                        <!-- 任务卡（默认底色必须走 Style Setter：本地属性会压过触发器） -->
+                        <Border Margin="{Binding CardMargin}" Padding="10,7" CornerRadius="6">
+                            <Border.ContextMenu>
+                                <ContextMenu>
+                                    <MenuItem Header="完成 / 取消完成" Click="MenuToggleComplete_Click"/>
+                                    <MenuItem Header="★ 重点切换" Click="MenuToggleStar_Click"/>
+                                    <MenuItem Header="✏ 重命名" Click="MenuRename_Click"/>
+                                    <MenuItem Header="➕ 添加子任务" Click="MenuAddChild_Click"/>
+                                    <MenuItem Header="🗑 删除（连同子任务）" Click="MenuDelete_Click"/>
+                                    <Separator/>
+                                    <MenuItem Header="清除已完成（归档）" Command="{Binding DataContext.ArchiveCompletedConfirmedCommand, RelativeSource={RelativeSource AncestorType=Window}}"/>
+                                </ContextMenu>
+                            </Border.ContextMenu>
                             <Border.Style>
                                 <Style TargetType="Border">
+                                    <Setter Property="Background" Value="#FFFFFF"/>
                                     <Setter Property="Visibility" Value="Visible"/>
                                     <Style.Triggers>
                                         <DataTrigger Binding="{Binding IsHeader}" Value="True">
@@ -134,12 +192,12 @@
                                         </Style>
                                     </TextBlock.Style>
                                 </TextBlock>
-                                <!-- 正文 -->
+                                <!-- 正文（默认前景走 Style Setter：本地属性会压过触发器） -->
                                 <TextBlock Grid.Column="2" Text="{Binding Todo.Text}" FontSize="13"
-                                           TextWrapping="Wrap" VerticalAlignment="Center" Margin="4,0,4,0"
-                                           Foreground="#1F2329">
+                                           TextWrapping="Wrap" VerticalAlignment="Center" Margin="4,0,4,0">
                                     <TextBlock.Style>
                                         <Style TargetType="TextBlock">
+                                            <Setter Property="Foreground" Value="#1F2329"/>
                                             <Style.Triggers>
                                                 <DataTrigger Binding="{Binding Todo.Completed}" Value="True">
                                                     <Setter Property="Foreground" Value="#9AA3AF"/>

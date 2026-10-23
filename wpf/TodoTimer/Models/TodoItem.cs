@@ -22,4 +22,5 @@ public sealed class TodoItem
     [JsonPropertyName("target_seconds")] public int? TargetSeconds { get; set; }
     [JsonPropertyName("reminded")] public bool Reminded { get; set; }
     [JsonPropertyName("date")] public string Date { get; set; } = TodayStr();
+    [JsonPropertyName("archived_at")] public string? ArchivedAt { get; set; }   // 仅 archive.json 使用
 }
