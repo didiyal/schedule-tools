@@ -1,47 +1,187 @@
 <Window x:Class="TodoTimer.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="待办计时器" Height="640" Width="420"
-        Background="#F5F6FA">
-    <ScrollViewer VerticalScrollBarVisibility="Auto">
-        <ItemsControl x:Name="List" Margin="8">
-            <ItemsControl.ItemTemplate>
+        Title="待办计时器" Height="680" Width="440"
+        Background="#F5F6FA" FontFamily="Microsoft YaHei UI">
+    <Window.Resources>
+        <Style x:Key="GhostBtn" TargetType="Button">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Foreground" Value="#8A919F"/>
+            <Setter Property="Padding" Value="4,0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}"
+                                CornerRadius="4" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter VerticalAlignment="Center"/>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+    <DockPanel>
+        <!-- 顶部：筛选 + 搜索 -->
+        <Border DockPanel.Dock="Top" Background="#FFFFFF" Padding="12,8">
+            <DockPanel>
+                <TextBox DockPanel.Dock="Right" Width="150" FontSize="12"
+                         VerticalContentAlignment="Center"
+                         Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"/>
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock Text="筛选" Foreground="#5C626E" FontSize="12" VerticalAlignment="Center"/>
+                    <CheckBox Content="未完成" IsChecked="{Binding FilterActive}"
+                              Margin="10,0,0,0" VerticalAlignment="Center"/>
+                    <CheckBox Content="已完成" IsChecked="{Binding FilterCompleted}"
+                              Margin="12,0,0,0" VerticalAlignment="Center"/>
+                </StackPanel>
+            </DockPanel>
+        </Border>
+        <!-- 底部：统计 -->
+        <Border DockPanel.Dock="Bottom" Background="#FFFFFF" Padding="12,6">
+            <TextBlock Text="{Binding StatText}" Foreground="#8A919F" FontSize="11"/>
+        </Border>
+        <!-- 列表（虚拟化） -->
+        <ListBox ItemsSource="{Binding Rows}"
+                 Background="Transparent" BorderThickness="0" Padding="8,4"
+                 HorizontalContentAlignment="Stretch"
+                 ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                 VirtualizingPanel.IsVirtualizing="True"
+                 VirtualizingPanel.VirtualizationMode="Recycling">
+            <ListBox.ItemContainerStyle>
+                <Style TargetType="ListBoxItem">
+                    <Setter Property="Template">
+                        <Setter.Value>
+                            <ControlTemplate TargetType="ListBoxItem">
+                                <ContentPresenter/>
+                            </ControlTemplate>
+                        </Setter.Value>
+                    </Setter>
+                </Style>
+            </ListBox.ItemContainerStyle>
+            <ListBox.ItemTemplate>
                 <DataTemplate>
-                    <Border Padding="10,7" CornerRadius="6" Margin="{Binding Indent}" Background="#FFFFFF">
-                        <Border.Style>
-                            <Style TargetType="Border">
-                                <Style.Triggers>
-                                    <DataTrigger Binding="{Binding Completed}" Value="True">
-                                        <Setter Property="Background" Value="#E8F7EE"/>
-                                    </DataTrigger>
-                                    <DataTrigger Binding="{Binding IsHeader}" Value="True">
-                                        <Setter Property="Background" Value="Transparent"/>
-                                        <Setter Property="Padding" Value="2,10,2,4"/>
-                                    </DataTrigger>
-                                </Style.Triggers>
-                            </Style>
-                        </Border.Style>
-                        <TextBlock Text="{Binding Label}" FontSize="13">
+                    <StackPanel>
+                        <!-- 日组头 -->
+                        <TextBlock Text="{Binding Label}" Margin="2,10,2,4"
+                                   FontSize="12" FontWeight="Bold" Foreground="#8A919F">
                             <TextBlock.Style>
                                 <Style TargetType="TextBlock">
-                                    <Setter Property="Foreground" Value="#1F2329"/>
+                                    <Setter Property="Visibility" Value="Collapsed"/>
                                     <Style.Triggers>
-                                        <DataTrigger Binding="{Binding Completed}" Value="True">
-                                            <Setter Property="Foreground" Value="#9AA3AF"/>
-                                            <Setter Property="TextDecorations" Value="Strikethrough"/>
-                                        </DataTrigger>
                                         <DataTrigger Binding="{Binding IsHeader}" Value="True">
-                                            <Setter Property="Foreground" Value="#8A919F"/>
-                                            <Setter Property="FontSize" Value="12"/>
-                                            <Setter Property="FontWeight" Value="Bold"/>
+                                            <Setter Property="Visibility" Value="Visible"/>
                                         </DataTrigger>
                                     </Style.Triggers>
                                 </Style>
                             </TextBlock.Style>
                         </TextBlock>
-                    </Border>
+                        <!-- 任务卡 -->
+                        <Border Margin="{Binding CardMargin}" Padding="10,7" CornerRadius="6"
+                                Background="#FFFFFF">
+                            <Border.Style>
+                                <Style TargetType="Border">
+                                    <Setter Property="Visibility" Value="Visible"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsHeader}" Value="True">
+                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding Todo.Completed}" Value="True">
+                                            <Setter Property="Background" Value="#E8F7EE"/>
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding Dim}" Value="True">
+                                            <Setter Property="Opacity" Value="0.45"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Border.Style>
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <!-- 折叠箭头 -->
+                                <Button Grid.Column="0" FontSize="11"
+                                        Content="{Binding ExpandGlyph}"
+                                        Command="{Binding DataContext.ToggleExpandCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                        CommandParameter="{Binding Todo.Id}">
+                                    <Button.Style>
+                                        <Style TargetType="Button" BasedOn="{StaticResource GhostBtn}">
+                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding Expandable}" Value="True">
+                                                    <Setter Property="Visibility" Value="Visible"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Button.Style>
+                                </Button>
+                                <!-- 重点 -->
+                                <TextBlock Grid.Column="1" Text="★" FontSize="12"
+                                           Foreground="#F5A623" VerticalAlignment="Center" Margin="2,0,0,0">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding Todo.Starred}" Value="True">
+                                                    <Setter Property="Visibility" Value="Visible"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
+                                <!-- 正文 -->
+                                <TextBlock Grid.Column="2" Text="{Binding Todo.Text}" FontSize="13"
+                                           TextWrapping="Wrap" VerticalAlignment="Center" Margin="4,0,4,0"
+                                           Foreground="#1F2329">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock">
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding Todo.Completed}" Value="True">
+                                                    <Setter Property="Foreground" Value="#9AA3AF"/>
+                                                    <Setter Property="TextDecorations" Value="Strikethrough"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
+                                <!-- 跨日角标 -->
+                                <TextBlock Grid.Column="3" Text="{Binding DateBadge}" FontSize="11"
+                                           Foreground="#B0B6BF" VerticalAlignment="Center" Margin="0,0,4,0">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding ShowDate}" Value="True">
+                                                    <Setter Property="Visibility" Value="Visible"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
+                                <!-- 子进度 -->
+                                <TextBlock Grid.Column="4" Text="{Binding Progress}" FontSize="11"
+                                           Foreground="#8A919F" VerticalAlignment="Center">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding Expandable}" Value="True">
+                                                    <Setter Property="Visibility" Value="Visible"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
+                            </Grid>
+                        </Border>
+                    </StackPanel>
                 </DataTemplate>
-            </ItemsControl.ItemTemplate>
-        </ItemsControl>
-    </ScrollViewer>
+            </ListBox.ItemTemplate>
+        </ListBox>
+    </DockPanel>
 </Window>
