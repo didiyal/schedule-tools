@@ -18,6 +18,7 @@ public partial class MainWindow : Window
     private DropAdorner? _dropAdorner;
     private Point _downPt;
     private string? _downRowId;
+    private bool _downOnButton;   // 从按钮(折叠箭头等)上起的按下不进入拖拽，防误触
     private string? _dragId;
     private DropAction? _pendingDrop;
 
@@ -60,14 +61,16 @@ public partial class MainWindow : Window
         _downPt = e.GetPosition(List);
         var row = RowFromPoint(_downPt).Row;
         _downRowId = row is { IsHeader: false } ? row.Todo.Id : null;
+        _downOnButton = WalkToButton(e.OriginalSource as DependencyObject);
     }
 
     private void List_PreviewMouseMove(object sender, MouseEventArgs e)
     {
         if (e.LeftButton != MouseButtonState.Pressed || _downRowId is null || _dragId is not null)
             return;
+        if (_downOnButton) return;
         var pt = e.GetPosition(List);
-        if (Math.Abs(pt.X - _downPt.X) < 4 && Math.Abs(pt.Y - _downPt.Y) < 4) return;
+        if (Math.Abs(pt.X - _downPt.X) < 10 && Math.Abs(pt.Y - _downPt.Y) < 10) return;
         _dragId = _downRowId;
         DragDrop.DoDragDrop(List, new DataObject(DataFormats.StringFormat, _dragId), DragDropEffects.Move);
         _dragId = null;
@@ -112,6 +115,16 @@ public partial class MainWindow : Window
         _dragId = null;
         _pendingDrop = null;
         Adorner()?.Clear();
+    }
+
+    private static bool WalkToButton(DependencyObject? o)
+    {
+        while (o is not null and not ListBox)
+        {
+            if (o is System.Windows.Controls.Primitives.ButtonBase) return true;
+            o = System.Windows.Media.VisualTreeHelper.GetParent(o);
+        }
+        return false;
     }
 
     private (PlanRow? Row, double YRatio, Rect Rect) RowFromPoint(Point ptInList)
