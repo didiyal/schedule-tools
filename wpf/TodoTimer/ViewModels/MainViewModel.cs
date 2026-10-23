@@ -27,7 +27,7 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty] private bool autostartEnabled;
     private bool _suppressAutostartSync;
 
-    public ObservableCollection<PlanRow> Rows { get; } = new();
+    public ObservableCollection<PlanRow> Rows { get; private set; } = new();
     public string DataDir { get; }
 
     public MainViewModel(string? dataDir = null)
@@ -76,8 +76,9 @@ public partial class MainViewModel : ObservableObject
     {
         var sel = SelectedId;
         var rows = RenderPlan.Compute(_file.Todos, EffectiveFilter, SearchText, _collapsed);
-        Rows.Clear();
-        foreach (var r in rows) Rows.Add(r);
+        // 整表替换：单次 Reset 通知（Clear+逐条 Add 会触发每行一次重排，165 行明显卡顿）
+        Rows = new ObservableCollection<PlanRow>(rows);
+        OnPropertyChanged(nameof(Rows));
 
         var total = _file.Todos.Count;
         var done = _file.Todos.Count(t => t.Completed);
@@ -166,7 +167,7 @@ public partial class MainViewModel : ObservableObject
         _byId[t.Id] = t;
         if (parentId != null) Expand(parentId);
         Rebuild();
-        Save();
+        ScheduleSave();
         return t.Id;
     }
 
@@ -209,7 +210,7 @@ public partial class MainViewModel : ObservableObject
             t.Date = TodoItem.TodayStr();
         }
         Rebuild();
-        Save();
+        ScheduleSave();
     }
 
     [RelayCommand]
@@ -218,7 +219,7 @@ public partial class MainViewModel : ObservableObject
         if (!_byId.TryGetValue(id, out var t)) return;
         t.Starred = !t.Starred;
         Rebuild();
-        Save();
+        ScheduleSave();
     }
 
     // ── 层级（Tab / Shift+Tab，语义对齐 Python _indent/_outdent_selected）──
@@ -240,7 +241,7 @@ public partial class MainViewModel : ObservableObject
         w.Order = _nextOrder++;                         // 成为该父的最后一个子任务
         Expand(target.Id);
         Rebuild();
-        Save();
+        ScheduleSave();
         return true;
     }
 
@@ -268,7 +269,7 @@ public partial class MainViewModel : ObservableObject
                 parentSibs[i + 1 + j].Order = hi + 1 + j;
         }
         Rebuild();
-        Save();
+        ScheduleSave();
         return true;
     }
 
@@ -313,7 +314,7 @@ public partial class MainViewModel : ObservableObject
         }
         SelectedId = null;
         Rebuild();
-        Save();
+        ScheduleSave();
     }
 
     public bool HasUndo => _undoSnapshot != null;
@@ -330,7 +331,7 @@ public partial class MainViewModel : ObservableObject
         }
         _undoSnapshot = null;
         Rebuild();
-        Save();
+        ScheduleSave();
         return true;
     }
 
@@ -351,7 +352,11 @@ public partial class MainViewModel : ObservableObject
     [RelayCommand] private void UndoSelected() => Undo();
 
     [RelayCommand]
-    private void ExitApp() => (Application.Current as App)?.RealExit();
+    private void ExitApp()
+    {
+        Save();   // 冲刷防抖中的未落盘改动
+        (Application.Current as App)?.RealExit();
+    }
 
     // ── 归档（对齐 Python _archive_completed：未完成后代上抛最近未归档祖先）──
 
@@ -392,7 +397,7 @@ public partial class MainViewModel : ObservableObject
         TodoStore.SaveArchive(ArchivePath, archive);
         SelectedId = null;
         Rebuild();
-        Save();
+        ScheduleSave();
         return completedIds.Count;
     }
 
@@ -447,7 +452,7 @@ public partial class MainViewModel : ObservableObject
             for (var i = 0; i < sibs.Count; i++) sibs[i].Order = vals[i];
         }
         Rebuild();
-        Save();
+        ScheduleSave();
         return true;
     }
 
@@ -467,7 +472,7 @@ public partial class MainViewModel : ObservableObject
         t.Running = true;
         t.LastStartedAt = (int)DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         Rebuild();
-        Save();
+        ScheduleSave();
     }
 
     public void PauseTimer(string id)
@@ -477,7 +482,7 @@ public partial class MainViewModel : ObservableObject
         t.Running = false;
         t.LastStartedAt = null;
         Rebuild();
-        Save();
+        ScheduleSave();
     }
 
     [RelayCommand]
@@ -501,7 +506,7 @@ public partial class MainViewModel : ObservableObject
             t.Visible = true;
         }
         Rebuild();
-        Save();
+        ScheduleSave();
     }
 
     /// <summary>离线补算：载入时运行中的任务把停机时长计入（对齐 Python 装载恢复）。</summary>
@@ -541,7 +546,7 @@ public partial class MainViewModel : ObservableObject
         t.TargetSeconds = seconds;
         t.Reminded = false;
         Rebuild();
-        Save();
+        ScheduleSave();
     }
 
     public void ClearReminder(string id)
@@ -550,7 +555,7 @@ public partial class MainViewModel : ObservableObject
         t.TargetSeconds = null;
         t.Reminded = false;
         Rebuild();
-        Save();
+        ScheduleSave();
     }
 
     // ── 计时面板 ──
@@ -582,6 +587,21 @@ public partial class MainViewModel : ObservableObject
             }
         }
         TodoStore.Save(SavePath, _file);
+    }
+
+    private System.Windows.Threading.DispatcherTimer? _saveTimer;
+
+    /// <summary>存盘防抖：连续操作合并为一次落盘（对齐 Python _schedule_save）。</summary>
+    public void ScheduleSave()
+    {
+        if (_saveTimer is null)
+        {
+            _saveTimer = new System.Windows.Threading.DispatcherTimer
+            { Interval = TimeSpan.FromMilliseconds(400) };
+            _saveTimer.Tick += (_, _) => { _saveTimer.Stop(); Save(); };
+        }
+        _saveTimer.Stop();
+        _saveTimer.Start();
     }
 
     private static string FormatElapsed(int seconds)

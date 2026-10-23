@@ -92,9 +92,9 @@ public partial class MainWindow : Window
         if (action.Kind == DropKind.Child)
             Adorner()?.ShowChildBox(rect.X + 2, rect.Y + 1, rect.Width - 4, rect.Height - 2);
         else if (action.Kind == DropKind.SiblingBefore)
-            Adorner()?.ShowSiblingLine(rect.X + indent + 2, rect.Y, rect.Width - indent - 8);
+            Adorner()?.ShowSiblingLine(rect.X + indent + 2, rect.Y, List.ActualWidth - indent - 20);
         else
-            Adorner()?.ShowSiblingLine(rect.X + indent + 2, rect.Y + rect.Height, rect.Width - indent - 8);
+            Adorner()?.ShowSiblingLine(rect.X + indent + 2, rect.Y + rect.Height, List.ActualWidth - indent - 20);
         e.Effects = DragDropEffects.Move;
         e.Handled = true;
     }
