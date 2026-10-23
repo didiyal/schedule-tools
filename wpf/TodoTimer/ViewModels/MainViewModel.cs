@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.IO;
+using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using TodoTimer.Models;
@@ -23,6 +24,8 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty] private string newTodoText = "";
     [ObservableProperty] private string? selectedId;
     [ObservableProperty] private string toast = "";
+    [ObservableProperty] private bool autostartEnabled;
+    private bool _suppressAutostartSync;
 
     public ObservableCollection<PlanRow> Rows { get; } = new();
     public string DataDir { get; }
@@ -51,7 +54,13 @@ public partial class MainViewModel : ObservableObject
             if (int.TryParse(t.Id, out var n) && n > _nextId) _nextId = n;
             if (t.Order >= _nextOrder) _nextOrder = t.Order + 1;
         }
+        CatchupOffline();
         Rebuild();
+        // 自启意图落盘自愈：即使 Run 键被清理工具删掉也能恢复（对齐 Python）
+        _suppressAutostartSync = true;
+        AutostartEnabled = _file.Autostart;
+        _suppressAutostartSync = false;
+        Services.Autostart.Set(_file.Autostart);
     }
 
     private void RebuildIndex()
@@ -82,6 +91,14 @@ public partial class MainViewModel : ObservableObject
 
     partial void OnFilterActiveChanged(bool value) => Rebuild();
     partial void OnFilterCompletedChanged(bool value) => Rebuild();
+
+    partial void OnAutostartEnabledChanged(bool value)
+    {
+        if (_suppressAutostartSync) return;
+        Services.Autostart.Set(value);
+        _file.Autostart = value;
+        Save();
+    }
 
     partial void OnSearchTextChanged(string value)
     {
@@ -180,8 +197,17 @@ public partial class MainViewModel : ObservableObject
     private void ToggleComplete(string id)
     {
         if (!_byId.TryGetValue(id, out var t)) return;
-        t.Completed = !t.Completed;
-        if (t.Completed) { t.Running = false; t.LastStartedAt = null; }
+        if (t.Completed)
+        {
+            t.Completed = false;                        // set_incomplete：仅翻标记
+        }
+        else
+        {
+            // set_complete 语义：停表 + 完成归到当天
+            if (t.Running) { t.Elapsed = LiveElapsed(t); t.Running = false; t.LastStartedAt = null; }
+            t.Completed = true;
+            t.Date = TodoItem.TodayStr();
+        }
         Rebuild();
         Save();
     }
@@ -324,6 +350,9 @@ public partial class MainViewModel : ObservableObject
 
     [RelayCommand] private void UndoSelected() => Undo();
 
+    [RelayCommand]
+    private void ExitApp() => (Application.Current as App)?.RealExit();
+
     // ── 归档（对齐 Python _archive_completed：未完成后代上抛最近未归档祖先）──
 
     public int CompletedCount() => _file.Todos.Count(t => t.Completed);
@@ -422,11 +451,136 @@ public partial class MainViewModel : ObservableObject
         return true;
     }
 
+    // ── 计时（对齐 Python TodoWidget.start/pause/get_live_elapsed）──
+
+    public static int LiveElapsed(TodoItem t)
+    {
+        if (!t.Running || t.LastStartedAt is null) return t.Elapsed;
+        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        return t.Elapsed + (int)Math.Max(0, now - t.LastStartedAt.Value);
+    }
+
+    public void StartTimer(string id)
+    {
+        if (!_byId.TryGetValue(id, out var t)) return;
+        if (t.Completed || t.Running) return;
+        t.Running = true;
+        t.LastStartedAt = (int)DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        Rebuild();
+        Save();
+    }
+
+    public void PauseTimer(string id)
+    {
+        if (!_byId.TryGetValue(id, out var t) || !t.Running) return;
+        t.Elapsed = LiveElapsed(t);
+        t.Running = false;
+        t.LastStartedAt = null;
+        Rebuild();
+        Save();
+    }
+
+    [RelayCommand]
+    private void TogglePanelTimer(string id)
+    {
+        if (!_byId.TryGetValue(id, out var t)) return;
+        if (t.Running) PauseTimer(id); else StartTimer(id);
+    }
+
+    /// <summary>加入/移出计时面板；移出时停表（对齐 Python hide()）。</summary>
+    public void TogglePanelVisible(string id)
+    {
+        if (!_byId.TryGetValue(id, out var t)) return;
+        if (t.Visible)
+        {
+            if (t.Running) PauseTimer(id);
+            t.Visible = false;
+        }
+        else
+        {
+            t.Visible = true;
+        }
+        Rebuild();
+        Save();
+    }
+
+    /// <summary>离线补算：载入时运行中的任务把停机时长计入（对齐 Python 装载恢复）。</summary>
+    private void CatchupOffline()
+    {
+        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        foreach (var t in _file.Todos)
+        {
+            if (t.Completed) t.Running = false;
+            if (t.Running && t.LastStartedAt is not null)
+            {
+                t.Elapsed += (int)Math.Max(0, now - t.LastStartedAt.Value);
+                t.LastStartedAt = (int)now;
+            }
+        }
+    }
+
+    /// <summary>目标时长提醒检查（由面板/主窗 1s tick 调用）。</summary>
+    public event Action<TodoItem, int>? ReminderRaised;
+
+    public void CheckReminders()
+    {
+        foreach (var t in _file.Todos)
+        {
+            if (!t.Running || t.TargetSeconds is null || t.Reminded) continue;
+            if (LiveElapsed(t) >= t.TargetSeconds.Value)
+            {
+                t.Reminded = true;
+                ReminderRaised?.Invoke(t, t.TargetSeconds.Value);
+            }
+        }
+    }
+
+    public void SetReminder(string id, int seconds)
+    {
+        if (!_byId.TryGetValue(id, out var t)) return;
+        t.TargetSeconds = seconds;
+        t.Reminded = false;
+        Rebuild();
+        Save();
+    }
+
+    public void ClearReminder(string id)
+    {
+        if (!_byId.TryGetValue(id, out var t)) return;
+        t.TargetSeconds = null;
+        t.Reminded = false;
+        Rebuild();
+        Save();
+    }
+
+    // ── 计时面板 ──
+
+    public IEnumerable<TodoItem> PanelTodos => _file.Todos.Where(t => t.Visible);
+    public (int X, int Y) PanelPosition => (_file.PanelX, _file.PanelY);
+
+    public void SavePanelPosition(double x, double y)
+    {
+        _file.PanelX = (int)x;
+        _file.PanelY = (int)y;
+        Save();
+    }
+
     // ── 存盘 ──
 
     public void Save()
     {
         _file.Collapsed = _collapsed.OrderBy(x => x, StringComparer.Ordinal).ToList();
+        // 运行中的任务把实时时长固化进 elapsed、last_started_at 同步为现在，
+        // 重载补算 = live + (载入时刻 - 现在)，不重复计时
+        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        foreach (var t in _file.Todos)
+        {
+            if (t.Running && t.LastStartedAt is not null)
+            {
+                t.Elapsed = LiveElapsed(t);
+                t.LastStartedAt = (int)now;
+            }
+        }
         TodoStore.Save(SavePath, _file);
     }
 

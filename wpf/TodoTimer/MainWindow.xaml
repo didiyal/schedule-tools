@@ -51,22 +51,25 @@
                 </TextBox>
             </DockPanel>
         </Border>
-        <!-- 底部：统计 + 提示 -->
+        <!-- 底部：统计 + 提示 + 面板开关 -->
         <Border DockPanel.Dock="Bottom" Background="#FFFFFF" Padding="12,6">
-            <StackPanel Orientation="Horizontal">
-                <TextBlock Text="{Binding StatText}" Foreground="#8A919F" FontSize="11"/>
-                <TextBlock Text="{Binding Toast}" Foreground="#E8842C" FontSize="11" Margin="12,0,0,0">
-                    <TextBlock.Style>
-                        <Style TargetType="TextBlock">
-                            <Style.Triggers>
-                                <DataTrigger Binding="{Binding Toast}" Value="">
-                                    <Setter Property="Visibility" Value="Collapsed"/>
-                                </DataTrigger>
-                            </Style.Triggers>
-                        </Style>
-                    </TextBlock.Style>
-                </TextBlock>
-            </StackPanel>
+            <DockPanel>
+                <Button DockPanel.Dock="Right" Content="⏱ 面板" Padding="8,2" Click="PanelBtn_Click"/>
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="{Binding StatText}" Foreground="#8A919F" FontSize="11"/>
+                    <TextBlock Text="{Binding Toast}" Foreground="#E8842C" FontSize="11" Margin="12,0,0,0">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding Toast}" Value="">
+                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
+                </StackPanel>
+            </DockPanel>
         </Border>
         <!-- 列表（虚拟化 + 选中 + 拖拽 + 快捷键） -->
         <ListBox x:Name="List" ItemsSource="{Binding Rows}"
@@ -88,6 +91,7 @@
                 <KeyBinding Key="Tab" Modifiers="Shift" Command="{Binding OutdentSelectedCommand}"/>
                 <KeyBinding Key="Delete" Command="{Binding DeleteSelectedCommand}"/>
                 <KeyBinding Key="Z" Modifiers="Control" Command="{Binding UndoSelectedCommand}"/>
+                <KeyBinding Key="Q" Modifiers="Control" Command="{Binding ExitAppCommand}"/>
             </ListBox.InputBindings>
             <ListBox.ItemContainerStyle>
                 <Style TargetType="ListBoxItem">
@@ -125,13 +129,15 @@
                             </TextBlock.Style>
                         </TextBlock>
                         <!-- 任务卡（默认底色必须走 Style Setter：本地属性会压过触发器） -->
-                        <Border Margin="{Binding CardMargin}" Padding="10,7" CornerRadius="6">
+                        <Border Margin="{Binding CardMargin}" Padding="10,7" CornerRadius="6"
+                                MouseLeftButtonDown="Card_MouseDown">
                             <Border.ContextMenu>
                                 <ContextMenu>
                                     <MenuItem Header="完成 / 取消完成" Click="MenuToggleComplete_Click"/>
                                     <MenuItem Header="★ 重点切换" Click="MenuToggleStar_Click"/>
                                     <MenuItem Header="✏ 重命名" Click="MenuRename_Click"/>
                                     <MenuItem Header="➕ 添加子任务" Click="MenuAddChild_Click"/>
+                                    <MenuItem Header="⏱ 加入 / 移出计时面板" Click="MenuPanelVisible_Click"/>
                                     <MenuItem Header="🗑 删除（连同子任务）" Click="MenuDelete_Click"/>
                                     <Separator/>
                                     <MenuItem Header="清除已完成（归档）" Command="{Binding DataContext.ArchiveCompletedConfirmedCommand, RelativeSource={RelativeSource AncestorType=Window}}"/>

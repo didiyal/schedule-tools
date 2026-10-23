@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
@@ -184,6 +185,30 @@ public partial class MainWindow : Window
     }
 
     private static PlanRow? Row(MenuItem mi) => mi.DataContext as PlanRow;
+
+    // ── 计时面板 / 托盘形态 ──
+
+    private void PanelBtn_Click(object sender, RoutedEventArgs e)
+        => (Application.Current as App)?.TogglePanel();
+
+    private void MenuPanelVisible_Click(object sender, RoutedEventArgs e)
+    {
+        if (Row((MenuItem)sender) is { } row) _vm.TogglePanelVisible(row.Todo.Id);
+    }
+
+    private void Card_MouseDown(object sender, MouseButtonEventArgs e)
+    {
+        if (e.ClickCount != 2) return;
+        if ((sender as FrameworkElement)?.DataContext is PlanRow { IsHeader: false } row)
+            _vm.TogglePanelVisible(row.Todo.Id);
+    }
+
+    protected override void OnClosing(CancelEventArgs e)
+    {
+        if (Application.Current is App { Exiting: true }) return;
+        e.Cancel = true;        // 关闭按钮 = 收起常驻（托盘退出真正关闭）
+        Hide();
+    }
 
     // ── 冒烟截图 ──
 
