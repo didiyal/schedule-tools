@@ -19,3 +19,8 @@ __pycache__/
 
 # Data (auto-generated at runtime)
 data/
+
+# .NET (wpf/)
+bin/
+obj/
+TestResults/

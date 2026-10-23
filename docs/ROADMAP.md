@@ -34,6 +34,19 @@
 - [x] CLI 树支持：parent/depth 字段、`--tree`、`add --parent`、`reparent`、`delete` 删整枝
 - [x] 修复：CLI start 面板同步、多 id 批量 headless 降级、连点折叠箭头误触面板
 
+## 规划（v1.4.0 · C#/WPF 重写）
+
+> 2026-10-23 用户拍板：动机=渲染性能，选成熟路线 C# + .NET 8 WPF；
+> 现有功能整体重写为 v1.4.0，拖拽「成为子任务」bug 在新版修复。
+> Python 线冻结于 v1.2.0。设计稿：[product/v1.4/design.md](product/v1.4/design.md)。
+
+- [ ] M0 环境(便携 .NET SDK) + 解决方案骨架 + todos.json 兼容读写
+- [ ] M1 每日一棵树 + 完成态 + 筛选 + 搜索
+- [ ] M2 树操作全套 + 拖拽三区(bug 修复) + 删整枝撤销 + 归档
+- [ ] M3 计时面板 + 托盘 + 自启 + 单实例 + 提醒
+- [ ] M4 CLI + IPC（契约与 v1.2 完全兼容）
+- [ ] M5 self-contained 发布 + Inno Setup + 文档同步
+
 ## 候选（后续考虑，未排期）
 
 > 以下为方向性候选，不代表承诺，是否实现取决于实际需求。
