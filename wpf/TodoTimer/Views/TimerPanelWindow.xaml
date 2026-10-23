@@ -26,7 +26,7 @@
                                 <TextBlock Grid.Column="0" Text="{Binding Text}" FontSize="12"
                                            TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
                                            Foreground="#1F2329"/>
-                                <TextBlock x:Name="TimeLbl" Grid.Column="1" FontSize="12"
+                                <TextBlock x:Name="TimeLbl" Tag="time" Grid.Column="1" FontSize="12"
                                            Foreground="#2BA245" VerticalAlignment="Center" Margin="6,0"/>
                                 <Button x:Name="ToggleBtn" Grid.Column="2" Width="24" Height="22"
                                         Click="Toggle_Click" Cursor="Hand"/>

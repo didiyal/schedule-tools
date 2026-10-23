@@ -37,12 +37,19 @@ public partial class App : Application
             Shutdown(0);
             return;
         }
+        DispatcherUnhandledException += (_, e2) =>
+        {
+            File.WriteAllText(@"D:\桌面\scheduleTools\tools\build_tmp\wpf_crash.log",
+                e2.Exception.ToString());
+            e2.Handled = false;
+        };
         base.OnStartup(e);
 
         var main = new MainWindow { Title = "待办计时器" };
         MainWindow = main;
         main.Show();
         InitTray((MainViewModel)main.DataContext);
+        if (e.Args.Any(a => a == "--panel")) TogglePanel();
     }
 
     private void InitTray(MainViewModel vm)

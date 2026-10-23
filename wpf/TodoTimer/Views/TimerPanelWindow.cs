@@ -60,10 +60,24 @@ public partial class TimerPanelWindow : Window
         for (var i = 0; i < PanelList.Items.Count; i++)
         {
             if (PanelList.ItemContainerGenerator.ContainerFromIndex(i) is not ContentPresenter cp) continue;
-            if (cp.ContentTemplate.FindName("TimeLbl", cp) is not TextBlock lbl) continue;
+            if (!cp.IsLoaded) continue;                       // 模板未应用时 FindName 会抛异常（闪退根因）
             if (cp.Content is not TodoItem t) continue;
+            if (FindDescendant(cp, e => e is TextBlock { Tag: "time" }) is not TextBlock lbl) continue;
             lbl.Text = Format(MainViewModel.LiveElapsed(t));
         }
+    }
+
+    private static FrameworkElement? FindDescendant(DependencyObject root, Func<FrameworkElement, bool> pred)
+    {
+        var n = System.Windows.Media.VisualTreeHelper.GetChildrenCount(root);
+        for (var i = 0; i < n; i++)
+        {
+            if (System.Windows.Media.VisualTreeHelper.GetChild(root, i) is not FrameworkElement c) continue;
+            if (pred(c)) return c;
+            var deep = FindDescendant(c, pred);
+            if (deep is not null) return deep;
+        }
+        return null;
     }
 
     private void Toggle_Click(object sender, RoutedEventArgs e)

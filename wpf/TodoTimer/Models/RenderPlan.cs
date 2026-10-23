@@ -32,7 +32,7 @@ public sealed class PlanRow
 public static class RenderPlan
 {
     private static readonly string[] Weekdays = { "周一", "周二", "周三", "周四", "周五", "周六", "周日" };
-    private const int IndentPx = 18;
+    private const int IndentPx = 28;
 
     public static string FormatDateCn(string dateStr)
     {
