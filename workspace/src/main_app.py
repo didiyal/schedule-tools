@@ -2,6 +2,7 @@ import tkinter as tk
 from tkinter import messagebox
 import json
 import os
+import queue
 import sys
 import time
 from datetime import datetime, timedelta
@@ -21,6 +22,7 @@ from .todo_widget import TodoWidget
 from .date_picker import DatePickerDialog
 from .todo_card import TodoCard, SectionHeader, EmptyHint
 from .timer_panel import TimerPanel
+from .cli_server import CLIServer
 from .tray import TrayController, autostart_enabled, set_autostart
 from .tooltip import ToolTip
 
@@ -100,14 +102,30 @@ class MainApp:
         )
         self._tray.start()
         # pystray 线程的回调经队列投递，主线程定期 pump 取出执行（跨线程不能用 root.after）
+        self._ipc_queue = queue.Queue()   # CLI/Agent 命令 → 主线程执行
         self.root.after(100, self._pump_tray)
+
+        # 本地 CLI/Agent 服务：外部进程经它与 GUI 共享同一份内存态，
+        # 改动即时反映到界面并走同一套存盘管线
+        self._cli_server = CLIServer(self._cli_dispatch, self._ipc_queue.put)
+        self._cli_server.start()
 
         self.root.protocol("WM_DELETE_WINDOW", self._minimize_to_tray)
 
     def _pump_tray(self):
-        """主线程轮询：取出 pystray 线程投递的回调并执行，然后重排。"""
+        """主线程轮询：取出托盘线程与 CLI 服务投递的回调并执行，然后重排。"""
         if self._tray is not None:
             self._tray.pump()
+        while True:
+            try:
+                fn = self._ipc_queue.get_nowait()
+            except queue.Empty:
+                break
+            try:
+                fn()
+            except Exception:
+                import traceback
+                traceback.print_exc()
         self.root.after(80, self._pump_tray)
 
     # ── UI 构建 ────────────────────────────────────────
@@ -159,10 +177,6 @@ class MainApp:
         flat_btn(date_inner, "今天", self._goto_today,
                  C["blue_light"], C["blue"], font_size=9, pady=3, padx=12,
                  fg=C["blue"]).pack(side=tk.LEFT, padx=(16, 0))
-
-        self.day_total_lbl = ctk.CTkLabel(date_inner, text="", fg_color=C["surface"],
-                                          text_color=C["text_sec"], font=(FONT, 10))
-        self.day_total_lbl.pack(side=tk.RIGHT)
 
         # ── 筛选标签栏 ──
         filter_bar = ctk.CTkFrame(self.root, fg_color=C["surface"])
@@ -425,11 +439,12 @@ class MainApp:
     def _add_todo(self, text=None, elapsed=0, x=None, y=None,
                   todo_id=None, visible=True, date=None, completed=False,
                   order=None, starred=False, running=False,
-                  last_started_at=None, target_seconds=None, reminded=False):
+                  last_started_at=None, target_seconds=None, reminded=False,
+                  from_cli=False):
         if text is None:
             text = self.entry.get().strip()
         if not text:
-            return
+            return None
 
         if todo_id is None:
             self._next_id += 1
@@ -472,9 +487,11 @@ class MainApp:
 
         if not self._loading:
             self._refresh_view()
-            if hasattr(self, "entry") and text is not None:
+            if (hasattr(self, "entry") and text is not None
+                    and not from_cli):
                 self.entry.delete(0, tk.END)
             self._schedule_save()
+        return w.todo_id
 
     def _on_todo_state_change(self):
         self._refresh_view()
@@ -536,8 +553,7 @@ class MainApp:
         titles = {"all": "全部待办", "active": "未完成", "completed": "已完成"}
         self.list_title_lbl.configure(
             text=titles.get(self.filter_state, "待办列表"))
-        self.day_total_lbl.configure(text=plan[6])
-        self.stat_lbl.configure(text=plan[7])
+        self.stat_lbl.configure(text=plan[6])
 
     def _materialize(self, entries):
         """把渲染计划落到控件上。
@@ -723,7 +739,7 @@ class MainApp:
         """纯计算当前视图的渲染计划，不触碰任何控件。
 
         返回元组 (filter_state, current_date, search, n_todos, fingerprint,
-        entries, day_total_text, stat_text)。entries 为不可变序列：
+        entries, stat_text)。entries 为不可变序列：
         ("hdr"|"sub"|"empty", 文本) 与 ("card", todo_id, 序号, 显示日期)。
         fingerprint 覆盖所有影响渲染的数据（含不走 _fire_change 的
         starred/_order 直接赋值），任一变化都会使计划失效。
@@ -735,7 +751,6 @@ class MainApp:
 
         today_str = self.current_date
         entries = []
-        day_total_text = ""
         order_key = lambda w: (not getattr(w, "starred", False),
                                getattr(w, "_order", 0))
 
@@ -753,11 +768,9 @@ class MainApp:
             today_items.sort(key=order_key)
             cross_items.sort(key=order_key)
 
-            day_total = 0
             if today_items:
                 entries.append(("hdr", "▎今日待办"))
             for seq, w in enumerate(today_items, 1):
-                day_total += w.elapsed
                 entries.append(("card", w.todo_id, seq, False))
 
             if cross_items:
@@ -776,7 +789,6 @@ class MainApp:
 
             if not today_items and not cross_items:
                 entries.append(("empty", "暂无待办"))
-            day_total_text = f"今日合计 {fmt_time(day_total)}  ·  {len(today_items)} 项"
 
         elif self.filter_state == "completed":
             # 已完成视图：所有完成项按日期倒序分组（跨日完成归到完成当天）
@@ -798,7 +810,6 @@ class MainApp:
                         entries.append(("card", w.todo_id, seq, False))
             else:
                 entries.append(("empty", "暂无已完成待办"))
-            day_total_text = f"已完成 {len(all_completed)} 项"
 
         else:
             # 全部视图：所有待办按日期倒序分组
@@ -811,7 +822,6 @@ class MainApp:
                 for w in all_todos:
                     groups.setdefault(getattr(w, "_date", get_today_str()),
                                       []).append(w)
-                day_total = 0
                 today = get_today_str()
                 for dk in sorted(groups.keys(), reverse=True):
                     group_items = groups[dk]
@@ -819,13 +829,9 @@ class MainApp:
                              else f"▎{fmt_date_cn(dk)} · {len(group_items)}项")
                     entries.append(("hdr", label))
                     for seq, w in enumerate(group_items, 1):
-                        if not w.completed:
-                            day_total += w.elapsed
                         entries.append(("card", w.todo_id, seq, False))
             else:
                 entries.append(("empty", "暂无待办"))
-            active_count = sum(1 for w in all_todos if not w.completed)
-            day_total_text = f"合计 {fmt_time(day_total)}  ·  {active_count} 项"
 
         total = len(self.todos)
         active = sum(1 for w in self.todos.values() if not w.completed)
@@ -838,7 +844,7 @@ class MainApp:
                     w.is_visible(), getattr(w, "_date", ""), w.elapsed)
                    for w in self.todos.values())
         return (self.filter_state, self.current_date, self._search_term,
-                total, fp, tuple(entries), day_total_text, stat_text)
+                total, fp, tuple(entries), stat_text)
 
     def _obtain_deco(self, entry):
         """从缓存取或新建分组标题/空提示（跨刷新复用，避免反复重建 CTk 控件）"""
@@ -1676,6 +1682,117 @@ class MainApp:
         if self._tray is not None:
             self._tray.stop()
         self.root.destroy()
+
+    # ── CLI/Agent 命令 (经 _ipc_queue 投递，主线程执行) ──
+    def _cli_dispatch(self, payload):
+        cmd = payload.get("cmd", "")
+        handler = getattr(self, f"_cli_{cmd}", None)
+        if handler is None:
+            return {"ok": False, "error": f"未知命令: {cmd!r}"}
+        try:
+            result = dict(handler(payload))
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+        result.setdefault("ok", True)
+        return result
+
+    def _cli_get(self, p):
+        tid = str(p.get("id", ""))
+        w = self.todos.get(tid)
+        if w is None:
+            raise ValueError(f"id 不存在: {tid}")
+        return w
+
+    @staticmethod
+    def _cli_brief(w):
+        if w.completed:
+            status = "completed"
+        elif w.running:
+            status = "running"
+        else:
+            status = "paused"
+        elapsed = w.get_live_elapsed()
+        return {"id": w.todo_id, "text": w.text,
+                "date": getattr(w, "_date", ""),
+                "elapsed_seconds": elapsed, "elapsed_hms": fmt_time(elapsed),
+                "status": status, "starred": w.starred,
+                "in_panel": w.is_visible(), "target_seconds": w.target_seconds}
+
+    def _cli_list(self, p):
+        if p.get("all"):
+            items = list(self.todos.values())
+            scope = "all"
+        else:
+            scope = p.get("date") or get_today_str()
+            items = [w for w in self.todos.values()
+                     if getattr(w, "_date", "") == scope]
+        items.sort(key=lambda w: (w.completed, not w.starred,
+                                  getattr(w, "_order", 0)))
+        return {"scope": scope, "count": len(items),
+                "todos": [self._cli_brief(w) for w in items]}
+
+    def _cli_add(self, p):
+        text = (p.get("text") or "").strip()
+        if not text:
+            return {"ok": False, "error": "text 不能为空"}
+        tid = self._add_todo(text=text,
+                             date=p.get("date") or get_today_str(),
+                             starred=bool(p.get("starred")), from_cli=True)
+        return {"added": self._cli_brief(self.todos[tid])}
+
+    def _cli_delete(self, p):
+        w = self._cli_get(p)
+        tid = w.todo_id
+        if self.timer_panel.has_todo(tid):
+            self.timer_panel.remove_todo(tid)
+        self.todos.pop(tid, None)
+        w.destroy()
+        self._refresh_view()
+        self._schedule_save()
+        return {"deleted": tid}
+
+    def _cli_move(self, p):
+        w = self._cli_get(p)
+        date = p.get("date")
+        if not date:
+            return {"ok": False, "error": "缺少 date (YYYY-MM-DD)"}
+        w.set_date(date)
+        return {"moved": w.todo_id, "date": date}
+
+    def _cli_done(self, p):
+        w = self._cli_get(p)
+        w.set_complete()
+        return {"done": w.todo_id}
+
+    def _cli_undo(self, p):
+        w = self._cli_get(p)
+        w.set_incomplete()
+        return {"undone": w.todo_id}
+
+    def _cli_rename(self, p):
+        w = self._cli_get(p)
+        text = (p.get("text") or "").strip()
+        if not text:
+            return {"ok": False, "error": "text 不能为空"}
+        w.set_text(text)
+        return {"renamed": w.todo_id, "text": text}
+
+    def _cli_star(self, p):
+        w = self._cli_get(p)
+        w.starred = bool(p.get("starred", not w.starred))
+        self._refresh_view()
+        self._schedule_save()
+        return {"id": w.todo_id, "starred": w.starred}
+
+    def _cli_start(self, p):
+        w = self._cli_get(p)
+        w.start()
+        return {"id": w.todo_id, "status": "running"}
+
+    def _cli_pause(self, p):
+        w = self._cli_get(p)
+        w.pause()
+        return {"id": w.todo_id, "status": "paused"}
 
     def run(self):
         self.root.mainloop()

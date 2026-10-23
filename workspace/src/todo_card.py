@@ -63,11 +63,6 @@ class TodoCard(ctk.CTkFrame):
         self.star_lbl = plabel(icons, star_text, star_fg, (FONT, 12))
         self.star_lbl.pack(side=tk.LEFT)
 
-        # ●○✓ 状态图标
-        status_text, status_fg = self._status_icon(w)
-        self.status_lbl = plabel(icons, status_text, status_fg, (FONT, 14))
-        self.status_lbl.pack(side=tk.LEFT, padx=(2, 0))
-
         # 间距
         spacer = tk.Frame(content, bg=C["surface"], width=8)
         spacer.pack(side=tk.LEFT)
@@ -152,14 +147,6 @@ class TodoCard(ctk.CTkFrame):
             result.append(child)
             result.extend(TodoCard._all_children(child))
         return result
-
-    @staticmethod
-    def _status_icon(w):
-        if w.completed:
-            return ("✓", C["green"])
-        if w.running:
-            return ("●", C["blue"])
-        return ("○", C["text_sec"])
 
     @staticmethod
     def _accent_color(w):
@@ -306,9 +293,6 @@ class TodoCard(ctk.CTkFrame):
         star_text = "★" if w.starred else ""
         star_fg = C["orange"] if w.starred else C["text_ter"]
         self.star_lbl.configure(text=star_text, fg=star_fg)
-
-        status_text, status_fg = self._status_icon(w)
-        self.status_lbl.configure(text=status_text, fg=status_fg)
 
         is_hidden = not w.is_visible()
         text_fg = C["text_ter"] if is_hidden else C["text"]

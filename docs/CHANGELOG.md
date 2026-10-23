@@ -2,6 +2,26 @@
 
 > 每个版本的详细变更见对应 `product/<版本>/changelog.md`。
 
+## 未发布
+
+### 新增
+
+- **CLI / Agent 接口**：`workspace/todo_cli.py`（打包后 `待办计时器.exe cli ...`），
+  支持 list / add / delete / move(改期) / done / undo / rename / star / start / pause，
+  `--json` 结构化输出。GUI 运行中经本地 IPC 实时同步（Agent 的改动立即显示在
+  界面，界面操作 Agent 立即可读）；GUI 未运行时自动降级直接读写
+  `data/todos.json`（同语义、原子写 + `.bak`）。GUI 运行中但 IPC 不可达时
+  拒绝写文件以防覆盖。详见 CLAUDE.md「CLI/Agent 服务」。
+## v1.1.2 — 2026-10-23
+
+### 调整
+
+- 界面精简：去掉日期栏右侧的「今日合计 · 几项」统计标签（三个视图均不再显示）。
+- 去掉主列表卡片序号后的状态圆圈（○/●/✓）；运行/重点/完成状态仍由卡片
+  左侧色条与文字颜色区分，计时面板行不受影响。
+
+详细变更见 [product/v1.1.2/changelog.md](product/v1.1.2/changelog.md)。
+
 ## v1.1.1 — 2026-09-12
 
 ### 修复

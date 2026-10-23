@@ -25,6 +25,8 @@ Python 3.10+ 标准库 + pystray/pillow（系统托盘）。
 
 **Observer 回调**: TodoWidget 持有 `_callbacks` 列表（非单一回调）。MainApp 和 TimerPanel 各自通过 `add_callback()` / `remove_callback()` 订阅。`_fire_change()` 遍历全部触发。移除待办时 TimerPanel 用保存的 callback 引用精确移除自己那条。
 
+**CLI/Agent 服务**: GUI 启动时内嵌 `src/cli_server.py`（TCP 127.0.0.1:58372，一行 JSON 请求/响应；环境变量 `TODOTIMER_CLI_PORT` 覆盖）。命令经 `_ipc_queue` + `_pump_tray` 投递主线程执行（`_cli_*` 处理器：list/add/delete/move/done/undo/rename/star/start/pause），与渲染/存盘管线同源——Agent 改动即时上屏，GUI 操作对 Agent 立即可见。入口 `workspace/todo_cli.py`（打包后 `待办计时器.exe cli ...`，见 `main.py`）：GUI 在线走 IPC；连接被拒（GUI 未运行）降级 `src/cli_headless.py` 直接读写 JSON（同语义：done 归今天、原子写+.bak）。注意：GUI 运行中但 IPC 不可达时 CLI 拒绝写文件（防覆盖），仅 list 允许降级读。
+
 **渲染管线 (v1.1.1)**: `_refresh_view` 先 `_compute_plan()` 纯计算渲染计划（entries + 统计文本 + 数据指纹，指纹含不走 `_fire_change` 的 `starred/_order` 直接赋值），计划与上次相同则整体跳过（吸收 observer 双订阅与操作后显式调用的重复刷新）。落地上分三路：卡片序列不变 → `_sync_card` 同值守卫逐卡同步；纯增/纯删 → 只增删目标卡片（`pack(before=/after=)` 锚点重挂轻量装饰）；其余（切视图/排序）→ 全量重排，首屏 14 条同步 + 剩余按 80ms 预算分帧补齐（`_render_seq` 令牌使新计划即时作废旧流）。选中状态跨刷新保留（目标卡片仍在当前视图渲染即保留并高亮；删除/归档路径须显式清空）。启动空闲期 `_prewarm_cards` 逐张 `place(x=-20000)` 完成首次映射再卸下，摊平首次切换成本。卡片仅外壳是 CTk（圆角/选中/悬停），内部标签与分组标题、空提示全为纯 tk，底色统一由 `TodoCard._apply_fg` 同步。
 
 **三态视图**: active=今日待办 + 跨日未完成分组；completed=所有完成项按日期倒序分组（跨日完成归到完成当天）；all=全部待办按日期倒序分组。

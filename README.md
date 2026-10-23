@@ -43,6 +43,21 @@ Windows 桌面悬浮待办计时工具 —— 主窗口管理待办列表，统�
 - **旧格式兼容**：自动检测并转换旧版数组格式数据
 - **归档**：🗑 清除已完成按钮把完成项移到 `data/archive.json`，保持主列表清爽
 
+### CLI / Agent 接口
+
+供 AI Agent 与脚本读写待办数据，与 GUI 实时同步：
+
+```bash
+cd tools/workspace
+python todo_cli.py list [--date YYYY-MM-DD | --all] [--json]
+python todo_cli.py add "任务文本" [--date YYYY-MM-DD] [--star]
+python todo_cli.py done <id> | undo <id> | delete <id>
+python todo_cli.py move <id> YYYY-MM-DD | rename <id> "新文本" | star <id>
+python todo_cli.py start <id> | pause <id>
+```
+
+GUI 运行中走本地 IPC（改动立即显示在界面）；未运行时直接读写
+`data/todos.json`。打包版：`待办计时器.exe cli list --json`。
 ### 键盘快捷键
 
 | 按键 | 操作 |
@@ -72,13 +87,16 @@ Windows 桌面悬浮待办计时工具 —— 主窗口管理待办列表，统�
 ```
 tools/
 ├── workspace/
-│   ├── main.py              # 入口：DPI 感知 → MainApp.run()
+│   ├── main.py              # 入口：DPI 感知 → MainApp.run()；`main.py cli` → 命令行
+│   ├── todo_cli.py          # CLI 客户端（argparse + IPC/降级直读写）
 │   └── src/
 │       ├── main_app.py      # 主窗口控制器 — CRUD/渲染/筛选/搜索/持久化
 │       ├── timer_panel.py   # 统一计时悬浮面板 — 顶部吸附、200ms tick
 │       ├── todo_widget.py   # 待办数据模型 — 纯状态+计时逻辑，不持有 UI
 │       ├── todo_card.py     # 列表卡片 UI — TodoCard/SectionHeader/EmptyHint
 │       ├── tray.py          # 系统托盘 + 开机自启（pystray）
+│       ├── cli_server.py    # 本地 CLI/Agent 服务（GUI 内嵌，127.0.0.1 TCP）
+│       ├── cli_headless.py  # GUI 未运行时 CLI 的直接读写路径
 │       ├── constants.py     # 飞书风格配色 & 字体常量
 │       ├── utils.py         # flat_btn、时间/日期格式化
 │       ├── tooltip.py       # 延迟悬浮提示 (500ms)
