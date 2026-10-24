@@ -72,10 +72,48 @@ public partial class MainViewModel : ObservableObject
     private Dictionary<string, string?> ParentMap()
         => _byId.ToDictionary(kv => kv.Key, kv => kv.Value.Parent);
 
+    private string? _previewDragId;
+    private DropAction? _previewDrop;
+    private string? _previewKey;
+
+    /// <summary>拖拽预览(push 模式): 被拖项离位, 目标处开出空白槽, 其他卡片推开。</summary>
+    public void ShowDropPreview(string dragId, DropAction action)
+    {
+        var key = $"{dragId}:{action.TargetId}:{action.Kind}";
+        if (key == _previewKey) return;   // 同一落点不重复重排
+        _previewKey = key;
+        _previewDragId = dragId;
+        _previewDrop = action;
+        Rebuild();
+    }
+
+    public void ClearDropPreview()
+    {
+        if (_previewKey is null) return;
+        _previewKey = null;
+        _previewDragId = null;
+        _previewDrop = null;
+        Rebuild();
+    }
+
+    private void ApplyPreview(List<PlanRow> rows)
+    {
+        if (_previewDragId is null || _previewDrop is null) return;
+        rows.RemoveAll(r => !r.IsHeader && r.Todo.Id == _previewDragId);
+        var idx = rows.FindIndex(r => !r.IsHeader && r.Todo.Id == _previewDrop.TargetId);
+        if (idx < 0) return;
+        var target = rows[idx];
+        var depth = _previewDrop.Kind == DropKind.Child ? target.Depth + 1 : target.Depth;
+        rows.Insert(_previewDrop.Kind == DropKind.SiblingBefore ? idx : idx + 1,
+            new PlanRow { IsPlaceholder = true, Depth = depth,
+                CardMargin = new Thickness(depth * 28, 2, 0, 2) });
+    }
+
     public void Rebuild()
     {
         var sel = SelectedId;
         var rows = RenderPlan.Compute(_file.Todos, EffectiveFilter, SearchText, _collapsed);
+        ApplyPreview(rows);
         // 整表替换：单次 Reset 通知（Clear+逐条 Add 会触发每行一次重排，165 行明显卡顿）
         Rows = new ObservableCollection<PlanRow>(rows);
         OnPropertyChanged(nameof(Rows));

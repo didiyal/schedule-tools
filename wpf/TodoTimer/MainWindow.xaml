@@ -152,6 +152,12 @@
                                         <DataTrigger Binding="{Binding IsHeader}" Value="True">
                                             <Setter Property="Visibility" Value="Collapsed"/>
                                         </DataTrigger>
+                                        <DataTrigger Binding="{Binding IsPlaceholder}" Value="True">
+                                            <Setter Property="Background" Value="#EDF2F9"/>
+                                            <Setter Property="BorderBrush" Value="#A9C1E8"/>
+                                            <Setter Property="BorderThickness" Value="1"/>
+                                            <Setter Property="Height" Value="30"/>
+                                        </DataTrigger>
                                         <DataTrigger Binding="{Binding Todo.Completed}" Value="True">
                                             <Setter Property="Background" Value="#E8F7EE"/>
                                         </DataTrigger>
@@ -162,6 +168,15 @@
                                 </Style>
                             </Border.Style>
                             <Grid>
+                                <Grid.Style>
+                                    <Style TargetType="Grid">
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsPlaceholder}" Value="True">
+                                                <Setter Property="Visibility" Value="Collapsed"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Grid.Style>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="Auto"/>
                                     <ColumnDefinition Width="Auto"/>

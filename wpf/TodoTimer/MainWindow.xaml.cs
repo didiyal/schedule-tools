@@ -91,7 +91,9 @@ public partial class MainWindow : Window
 
         var action = _vm.ResolveDrop(_dragId, row.Todo.Id, yRatio);
         _pendingDrop = action;
-        if (action is null) { Adorner()?.Clear(); return; }
+        if (action is null) { Adorner()?.Clear(); _vm.ClearDropPreview(); return; }
+        // push 模式: 空白槽位即指示器(其他卡片推开让位), 不再画线
+        _vm.ShowDropPreview(_dragId, action);
 
         var indent = row.Depth * 28;
         var ad = Adorner();
@@ -140,6 +142,7 @@ public partial class MainWindow : Window
     {
         _pendingDrop = null;
         Adorner()?.Clear();
+        _vm.ClearDropPreview();
     }
 
     private void List_Drop(object sender, DragEventArgs e)
@@ -149,6 +152,7 @@ public partial class MainWindow : Window
         _dragId = null;
         _pendingDrop = null;
         Adorner()?.Clear();
+        _vm.ClearDropPreview();
     }
 
     private static bool WalkToButton(DependencyObject? o)

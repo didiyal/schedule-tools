@@ -9,6 +9,7 @@ public enum FilterState { All, Active, Completed }
 public sealed class PlanRow
 {
     public bool IsHeader { get; init; }
+    public bool IsPlaceholder { get; init; }
     public string Label { get; init; } = "";
     public TodoItem Todo { get; init; } = new();
     public int Depth { get; init; }
