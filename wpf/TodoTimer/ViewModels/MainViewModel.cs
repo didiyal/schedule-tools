@@ -84,7 +84,26 @@ public partial class MainViewModel : ObservableObject
         _previewKey = key;
         _previewDragId = dragId;
         _previewDrop = action;
-        Rebuild();
+        ApplyPreviewLive();
+    }
+
+    /// <summary>拖拽期间对现有集合做最小变动（移除被拖行+插占位槽）。
+    /// 不能整表替换 ItemsSource：容器重建会触发 OLE DragLeave → 清预览的死循环。</summary>
+    private void ApplyPreviewLive()
+    {
+        if (_previewDragId is null || _previewDrop is null) return;
+        for (var i = Rows.Count - 1; i >= 0; i--)
+            if (Rows[i].IsPlaceholder || Rows[i].Todo.Id == _previewDragId)
+                Rows.RemoveAt(i);
+        var idx = -1;
+        for (var i = 0; i < Rows.Count; i++)
+            if (!Rows[i].IsHeader && Rows[i].Todo.Id == _previewDrop.TargetId) { idx = i; break; }
+        if (idx < 0) return;
+        var target = Rows[idx];
+        var depth = _previewDrop.Kind == DropKind.Child ? target.Depth + 1 : target.Depth;
+        Rows.Insert(_previewDrop.Kind == DropKind.SiblingBefore ? idx : idx + 1,
+            new PlanRow { IsPlaceholder = true, Depth = depth,
+                CardMargin = new Thickness(depth * 28, 2, 0, 2) });
     }
 
     public void ClearDropPreview()
