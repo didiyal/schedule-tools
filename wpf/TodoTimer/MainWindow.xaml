@@ -158,6 +158,10 @@
                                             <Setter Property="BorderThickness" Value="1"/>
                                             <Setter Property="Height" Value="30"/>
                                         </DataTrigger>
+                                        <DataTrigger Binding="{Binding IsBlocked}" Value="True">
+                                            <Setter Property="Background" Value="#FDECEC"/>
+                                            <Setter Property="BorderBrush" Value="#E5484D"/>
+                                        </DataTrigger>
                                         <DataTrigger Binding="{Binding Todo.Completed}" Value="True">
                                             <Setter Property="Background" Value="#E8F7EE"/>
                                         </DataTrigger>

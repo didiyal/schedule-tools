@@ -77,13 +77,16 @@ public partial class MainViewModel : ObservableObject
     private string? _previewKey;
 
     /// <summary>拖拽预览(push 模式): 被拖项离位, 目标处开出空白槽, 其他卡片推开。</summary>
-    public void ShowDropPreview(string dragId, DropAction action)
+    private string? _previewBlockedTarget;
+
+    public void ShowDropPreview(string dragId, DropAction? action)
     {
-        var key = $"{dragId}:{action.TargetId}:{action.Kind}";
+        var key = $"{dragId}:{action?.TargetId}:{action?.Kind}";
         if (key == _previewKey) return;   // 同一落点不重复重排
         _previewKey = key;
         _previewDragId = dragId;
         _previewDrop = action;
+        _previewBlockedTarget = action is null ? key : null;
         ApplyPreviewLive();
     }
 
@@ -91,7 +94,16 @@ public partial class MainViewModel : ObservableObject
     /// 不能整表替换 ItemsSource：容器重建会触发 OLE DragLeave → 清预览的死循环。</summary>
     private void ApplyPreviewLive()
     {
-        if (_previewDragId is null || _previewDrop is null) return;
+        if (_previewDragId is null) return;
+        if (_previewDrop is null)
+        {
+            // 无效落点：被拖项离位 + 红色虚线槽（"这里放不进去"），反馈不能是零
+            for (var i = Rows.Count - 1; i >= 0; i--)
+                if (Rows[i].IsPlaceholder || Rows[i].Todo.Id == _previewDragId)
+                    Rows.RemoveAt(i);
+            Rows.Add(new PlanRow { IsPlaceholder = true, IsBlocked = true });
+            return;
+        }
         for (var i = Rows.Count - 1; i >= 0; i--)
             if (Rows[i].IsPlaceholder || Rows[i].Todo.Id == _previewDragId)
                 Rows.RemoveAt(i);
