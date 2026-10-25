@@ -87,7 +87,9 @@ public partial class MainWindow : Window
         if (_dragId is null) return;
         var pt = e.GetPosition(List);
         var (row, yRatio, rect) = RowFromPoint(pt);
-        if (row?.Todo is null || row.IsHeader) { Adorner()?.Clear(); return; }
+        // 空白区/组头/占位槽上：保持当前让位状态。
+        // 占位槽是空 Todo, 若当目标解析必然失败并清掉预览 => 槽位闪烁、永远推不开
+        if (row is null || row.IsHeader || row.IsPlaceholder) return;
 
         var action = _vm.ResolveDrop(_dragId, row.Todo.Id, yRatio);
         _pendingDrop = action;
