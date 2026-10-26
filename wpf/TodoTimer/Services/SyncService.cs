@@ -1,0 +1,370 @@
+using System.IO;
+using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Security.Cryptography.X509Certificates;
+using System.Net.Security;
+using System.Text;
+using System.Text.Encodings.Web;
+using System.Text.Json;
+using TodoTimer.Models;
+
+namespace TodoTimer.Services;
+
+/// <summary>同步配置与状态，持久化在 data/syncstate.json。</summary>
+public sealed class SyncState
+{
+    public string Server { get; set; } = "";        // 如 https://47.112.114.139
+    public string AdminToken { get; set; } = "";    // 管理员令牌（桌面端=权威端）
+    public long ServerVersion { get; set; }         // 已拉到的服务端版本
+    public long PushedAtHighWater { get; set; }     // 已上行条目的 UpdatedAt 高水位
+    public string? PinnedFingerprint { get; set; }  // 服务器证书 SHA-256（hex 冒号），设置时锁定
+    public Dictionary<string, string> Fingerprints { get; set; } = new();   // id → 内容指纹
+    public Dictionary<string, long> Tombstones { get; set; } = new();       // id → 删除时刻
+    public bool Enabled => Server.Length > 0 && AdminToken.Length > 0;
+}
+
+/// <summary>
+/// 桌面端同步服务（v1.5 S2）：
+///   推：存盘钩子 OnSaved → 指纹 diff（SyncOps.BumpChanged 置 UpdatedAt）→ 上行 >高水位 的条目+墓碑；
+///   拉：App 30s tick 调 PollNow → 下行增量 → SyncOps.ApplyToList 合并 → 回调重建。
+/// 单用户权威端：本地改 = 本地胜（UpdatedAt=now），远端改仅在更新时覆盖。
+/// 失败静默记状态字符串（状态栏可见），绝不阻塞/破坏本地功能。
+/// </summary>
+public sealed class SyncService : IDisposable
+{
+    private readonly HttpClient _http;
+    private readonly string _statePath;
+    private SyncState _state = new();
+    private readonly object _gate = new();      // _state/_busy 串行化
+    private bool _busy;
+
+    /// <summary>合并落库后回调（VM：Rebuild+Save）。在 Poll 的调用线程触发。</summary>
+    public event Action? Merged;
+    public event Action<string>? StatusChanged;
+    public string Status { get; private set; } = "";
+
+    private static readonly JsonSerializerOptions StateOpts = new()
+    {
+        WriteIndented = true,
+        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+    };
+
+    public SyncService(string dataDir)
+    {
+        _statePath = Path.Combine(dataDir, "syncstate.json");
+        LoadState();
+        _http = new HttpClient(new HttpClientHandler
+        {
+            // 自签证书放行由下面的指纹校验兜底：PinnedFingerprint 非空时逐请求比对
+            ServerCertificateCustomValidationCallback = ValidatePin,
+        })
+        { Timeout = TimeSpan.FromSeconds(15) };
+    }
+
+    private bool ValidatePin(HttpRequestMessage req, X509Certificate2? cert,
+        X509Chain? chain, SslPolicyErrors errors)
+    {
+        var pin = _state.PinnedFingerprint;
+        if (string.IsNullOrEmpty(pin)) return true;   // 未钉：放行（设置对话框首次连接时钉上）
+        if (cert is null) return false;
+        var fp = Convert.ToHexString(cert.GetCertHash()) is { } raw
+            ? string.Join(':', Enumerable.Range(0, raw.Length / 2)
+                .Select(i => raw.Substring(i * 2, 2)))
+            : "";
+        return string.Equals(fp, pin, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>装载本地文件后初始化指纹表：全量登记当前指纹且不置 UpdatedAt（不上行存量数据）。</summary>
+    public void InitFingerprints(List<TodoItem> todos)
+    {
+        lock (_gate)
+        {
+            if (_state.Fingerprints.Count > 0) return;   // 已有状态必须保留——重置会把远端改动当本地新改
+            foreach (var t in todos) _state.Fingerprints[t.Id] = SyncOps.Fingerprint(t);
+            SaveState();
+        }
+    }
+
+    /// <summary>保存服务器配置。连接成功时钉证书指纹（自签+钉证书方案）。</summary>
+    public async Task<string?> ConfigureAsync(string server, string adminToken)
+    {
+        server = server.Trim().TrimEnd('/');
+        adminToken = adminToken.Trim();
+        if (server.Length == 0 || adminToken.Length == 0) return "服务器与令牌不能为空";
+
+        // 探测 + 钉证书：/healthz 免鉴权，顺带拿服务器版本
+        long version;
+        try
+        {
+            using var resp = await _http.GetAsync(server + "/healthz");
+            resp.EnsureSuccessStatusCode();
+            using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
+            version = doc.RootElement.GetProperty("version").GetInt64();
+        }
+        catch (Exception ex)
+        {
+            return "连接失败：" + TrimErr(ex);
+        }
+
+        // 拿到响应即有证书：首次配置锁指纹（用户主动配置=信任此次连接），已钉则此连接必须匹配
+        var fp = _lastCertFingerprint;
+        if (_state.PinnedFingerprint is { } old && fp is not null
+            && !string.Equals(old, fp, StringComparison.OrdinalIgnoreCase))
+            return "证书指纹与已锁定值不符（可能中间人/服务器重装），拒绝保存";
+        lock (_gate)
+        {
+            _state.Server = server;
+            _state.AdminToken = adminToken;
+            _state.ServerVersion = version;      // 从当前版本起增量拉
+            _state.PinnedFingerprint ??= fp;
+            SaveState();
+        }
+        SetStatus($"已连接，服务器版本 {version}");
+        return null;   // null = 成功
+    }
+
+    /// <summary>最近一次 HTTPS 响应的证书指纹（ValidatePin 无法回传，用字段带出）。</summary>
+    private string? _lastCertFingerprint;
+
+    public void ClearConfig()
+    {
+        lock (_gate)
+        {
+            _state = new SyncState();
+            SaveState();
+        }
+        SetStatus("同步已关闭");
+    }
+
+    public SyncState SnapshotState() { lock (_gate) return CloneState(_state); }
+
+    private static SyncState CloneState(SyncState s) => new()
+    {
+        Server = s.Server,
+        AdminToken = s.AdminToken,
+        ServerVersion = s.ServerVersion,
+        PushedAtHighWater = s.PushedAtHighWater,
+        PinnedFingerprint = s.PinnedFingerprint,
+        Fingerprints = new Dictionary<string, string>(s.Fingerprints),
+        Tombstones = new Dictionary<string, long>(s.Tombstones),
+    };
+
+    private void LoadState()
+    {
+        try
+        {
+            if (File.Exists(_statePath))
+                _state = JsonSerializer.Deserialize<SyncState>(File.ReadAllText(_statePath)) ?? new();
+        }
+        catch { _state = new SyncState(); }   // 坏文件按未配置处理，不阻断启动
+    }
+
+    private void SaveState()
+    {
+        try
+        {
+            var tmp = _statePath + ".tmp";
+            File.WriteAllText(tmp, JsonSerializer.Serialize(_state, StateOpts), new UTF8Encoding(false));
+            File.Move(tmp, _statePath, overwrite: true);
+        }
+        catch { /* 状态落盘失败不阻断同步 */ }
+    }
+
+    private void SetStatus(string s)
+    {
+        Status = s;
+        StatusChanged?.Invoke(s);
+    }
+
+    /// <summary>存盘钩子：检测变更并推送（后台，不阻塞 UI）。</summary>
+    public void OnSaved(Func<List<TodoItem>> getTodos)
+        => Task.Run(async () =>
+        {
+            if (!await EnterAsync()) return;
+            try { await PushCoreAsync(getTodos()); }
+            finally { Exit(); }
+        });
+
+    /// <summary>
+    /// 对账：指纹 diff 置 UpdatedAt + 本地消失条目墓碑化（返回本批待上行内容）。
+    /// 消失检测不能只挂在 Save 钩子上——CLI/远端合并改列表不经过 Save，
+    /// 由 Push 与 Poll 各自调用（Poll 是固定心跳，兜住所有外部变更路径）。
+    /// 调用方持锁无必要：todos 为 vm 权威引用，与 UI 线程的竞态由“先快照后比对”化解。
+    /// </summary>
+    private List<(string Id, TodoItem? Item, long Ts, bool Deleted)> Reconcile(List<TodoItem> todos, long now)
+    {
+        var batch = new List<(string, TodoItem?, long, bool)>();
+        lock (_gate)
+        {
+            foreach (var t in todos)
+            {
+                var fp = SyncOps.Fingerprint(t);
+                var changed = !_state.Fingerprints.TryGetValue(t.Id, out var old) || old != fp;
+                if (changed)
+                {
+                    // 已登记条目变更 → 置 now 上行；
+                    // 首次登记：UpdatedAt==0 的真·本地新建 → 置 now 上行；UpdatedAt>0 的
+                    // （远端带下来的存量）→ 只补指纹静默收编，不回推
+                    var known = _state.Fingerprints.ContainsKey(t.Id);
+                    if (known || t.UpdatedAt == 0)
+                    {
+                        t.UpdatedAt = now;
+                        batch.Add((t.Id, t, now, false));
+                    }
+                    _state.Fingerprints[t.Id] = fp;
+                }
+            }
+            // 本地已消失的条目 → 墓碑上行
+            foreach (var id in _state.Fingerprints.Keys.Where(id => !todos.Any(t => t.Id == id)).ToList())
+            {
+                _state.Fingerprints.Remove(id);
+                _state.Tombstones[id] = now;
+                batch.Add((id, null, now, true));
+            }
+            // 墓碑重试：Tombstones 里有、但列表里也没有的 → 重发直到服务端确认
+            // （历史教训：墓碑只在"指纹表有而列表无"时生成一次；若那次上传失败
+            //  （如旧服务端拒收 json=null），墓碑永远不会再进批次 → 删除在服务端永不生效）
+            foreach (var (id, ts) in _state.Tombstones.ToList())
+            {
+                if (!todos.Any(t => t.Id == id) && !batch.Any(b => b.Item1 == id))
+                    batch.Add((id, null, ts, true));
+            }
+        }
+        return batch;
+    }
+
+    private async Task PushCoreAsync(List<TodoItem> todos, bool quietWhenIdle = false)
+    {
+        try
+        {
+            lock (_gate)
+            {
+                if (!_state.Enabled) { Exit(); return; }
+            }
+            var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            var raw = Reconcile(todos, now);
+            Log($"push: todos={todos.Count} batch={raw.Count}(del={raw.Count(b => b.Deleted)}) now={now}");
+            var batch = raw.Select(b =>
+            {
+                JsonElement json;
+                if (b.Item is { } item) json = JsonSerializer.SerializeToElement(item);
+                else json = JsonSerializer.Deserialize<JsonElement>("{\"id\":\"" + b.Id + "\"}");
+                return new
+                {
+                    id = b.Id,
+                    updatedAt = b.Ts,
+                    deletedAt = b.Deleted ? (long?)b.Ts : null,
+                    json,   // 墓碑也带最小合法对象（服务端要求批次条目 json 为对象才接受）
+                };
+            }).ToList();
+            if (batch.Count > 0)
+            {
+                var json = JsonSerializer.Serialize(new { items = batch },
+                    new JsonSerializerOptions { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping });
+                using var req = new HttpRequestMessage(HttpMethod.Post, _state.Server + "/api/changes");
+                req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _state.AdminToken);
+                req.Content = new StringContent(json, Encoding.UTF8, "application/json");
+                using var resp = await _http.SendAsync(req);
+                if ((int)resp.StatusCode == 401) { SetStatus("同步失败：令牌被拒(401)"); return; }
+                resp.EnsureSuccessStatusCode();
+                lock (_gate)
+                {
+                    _state.PushedAtHighWater = Math.Max(_state.PushedAtHighWater, batch.Max(b => b.updatedAt));
+                    SaveState();
+                }
+            }
+            else
+            {
+                lock (_gate) SaveState();
+                if (quietWhenIdle) return;   // 轮询里的空对账：不刷状态行
+            }
+            SetStatus($"已同步 {DateTime.Now:HH:mm:ss}");
+        }
+        catch (Exception ex)
+        {
+            SetStatus("同步失败：" + TrimErr(ex));
+        }
+    }
+
+    /// <summary>定时拉：先对账（兜住 CLI/合并等不经 Save 的外部变更）再下行合并。App 30s tick 调用。</summary>
+    public async Task PollNowAsync(Func<List<TodoItem>> getTodos)
+    {
+        if (!await EnterAsync()) return;
+        try
+        {
+            long ver, since;
+            lock (_gate)
+            {
+                if (!_state.Enabled) { Exit(); return; }
+                ver = since = _state.ServerVersion;
+            }
+            // 先对账上行（覆盖 CLI 删除、合并剔除等不触发 Save 的路径）
+            await PushCoreAsync(getTodos(), quietWhenIdle: true);
+            lock (_gate) since = _state.ServerVersion;
+            using var req = new HttpRequestMessage(HttpMethod.Get,
+                $"{_state.Server}/api/changes?since={since}");
+            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _state.AdminToken);
+            using var resp = await _http.SendAsync(req);
+            if ((int)resp.StatusCode == 401) { SetStatus("拉取失败：令牌被拒(401)"); return; }
+            resp.EnsureSuccessStatusCode();
+
+            using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
+            var root = doc.RootElement;
+            ver = root.GetProperty("version").GetInt64();
+            var todos = getTodos();
+            Log($"poll: since={since} serverVer={ver} todos={todos.Count}");
+            var changed = false;
+            foreach (var it in root.GetProperty("items").EnumerateArray())
+            {
+                var id = it.GetProperty("id").GetString();
+                if (string.IsNullOrEmpty(id)) continue;
+                var ua = it.TryGetProperty("updatedAt", out var u) ? u.GetInt64() : 0;
+                long? del = it.TryGetProperty("deletedAt", out var d) && d.ValueKind == JsonValueKind.Number
+                    ? d.GetInt64() : null;
+                var remote = new RemoteItem(id!, ua, del, it.GetProperty("json").Clone());
+                if (SyncOps.ApplyToList(todos, remote)) changed = true;
+                // 服务端已确认的墓碑 → 清本地重试项（否则永久重发）
+                if (del is not null)
+                    lock (_gate) _state.Tombstones.Remove(id!);
+            }
+            lock (_gate)
+            {
+                _state.ServerVersion = ver;
+                SaveState();
+            }
+            if (changed) Merged?.Invoke();   // VM 重建 + Save（Save→OnSaved 推回流，LWW 防回卷）
+            SetStatus($"已同步 {DateTime.Now:HH:mm:ss}");
+        }
+        catch (Exception ex)
+        {
+            SetStatus("同步失败：" + TrimErr(ex));
+        }
+        finally { Exit(); }
+    }
+
+    private bool Enter()
+    {
+        lock (_gate)
+        {
+            if (_busy) return false;
+            _busy = true;
+            return true;
+        }
+    }
+
+    private Task<bool> EnterAsync() => Task.FromResult(Enter());
+
+    private void Exit() { lock (_gate) _busy = false; }
+
+    private static string TrimErr(Exception ex)
+        => ex.Message.Length > 60 ? ex.Message[..60] : ex.Message;
+
+    /// <summary>诊断日志（build_tmp/sync.log，仅开发构建排障用；失败静默）。</summary>
+    public static void Log(string msg)
+    {
+        try { File.AppendAllText(@"D:\桌面\scheduleTools\tools\build_tmp\sync.log",
+            $"{DateTime.Now:HH:mm:ss} {msg}\r\n"); } catch { }
+    }
+
+    public void Dispose() => _http.Dispose();
+}

@@ -17,6 +17,7 @@ public partial class App : Application
     private TimerPanelWindow? _panel;
     private DispatcherTimer? _reminderTick;
     private DispatcherTimer? _panelRefreshTick;
+    private DispatcherTimer? _syncTick;
 
     public bool Exiting { get; private set; }
 
@@ -77,8 +78,14 @@ public partial class App : Application
         var main = new MainWindow { Title = "待办计时器 1.4" };   // 须与 FindWindowW 匹配
         MainWindow = main;
         main.Show();
-        InitTray((MainViewModel)main.DataContext);
         var vm = (MainViewModel)main.DataContext;
+        vm.AttachSync();                       // v1.5 S2：云同步装配（配置后才实际联网）
+        _syncTick = new DispatcherTimer { Interval = TimeSpan.FromSeconds(30) };
+        // 轮询合并必须作用在 vm 的权威列表引用上（绝不能 ToList 副本——改副本=白改），
+        // Merged 回调（已切回 UI 线程）负责 Rebuild+Save 落盘
+        _syncTick.Tick += (_, _) => _ = vm.Sync?.PollNowAsync(() => vm.AllTodos);
+        _syncTick.Start();
+        InitTray(vm);
         _ipc = new Services.IpcServer(() => vm.LoadFile());
         _ipc.Start();
         if (e.Args.Any(a => a == "--panel")) TogglePanel();
@@ -182,6 +189,7 @@ public partial class App : Application
         _ipc?.Dispose();
         _reminderTick?.Stop();
         _panelRefreshTick?.Stop();
+        _syncTick?.Stop();
         _tray?.Dispose();
         _panel?.Close();
         Shutdown();

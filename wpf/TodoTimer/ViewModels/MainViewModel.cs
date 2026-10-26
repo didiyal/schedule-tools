@@ -30,9 +30,26 @@ public partial class MainViewModel : ObservableObject
 
     public ObservableCollection<PlanRow> Rows { get; private set; } = new();
     public string DataDir { get; }
+    public Services.SyncService? Sync { get; private set; }   // v1.5 S2：云同步（配置后才非空可用）
 
     public MainViewModel(string? dataDir = null)
         => DataDir = dataDir ?? ResolveDataDir();
+
+    /// <summary>App 启动时装配同步服务（数据目录就绪后调用一次）。</summary>
+    public void AttachSync()
+    {
+        Sync ??= new Services.SyncService(DataDir);
+        // 合并发生在后台线程（改 _file.Todos 引用内容），必须回 UI 线程再 Rebuild+Save
+        Sync.Merged += () => System.Windows.Application.Current?.Dispatcher
+            .BeginInvoke(() => { Rebuild(); Save(); });
+        // 首次登记指纹（已有状态则保留），避免把存量数据误判为新改动
+        Sync.InitFingerprints(_file.Todos);
+        Sync.StatusChanged += s => System.Windows.Application.Current?.Dispatcher
+            .BeginInvoke(() => SyncStatus = s);
+        SyncStatus = Sync.Status;
+    }
+
+    [ObservableProperty] private string syncStatus = "";
 
     /// <summary>便携语义同 Python：打包版读 EXE 旁 data/；开发构建读仓库 data/。</summary>
     public static string ResolveDataDir()
@@ -734,6 +751,9 @@ public partial class MainViewModel : ObservableObject
     // ── 计时面板 ──
 
     public IEnumerable<TodoItem> PanelTodos => _file.Todos.Where(t => t.Visible);
+
+    /// <summary>全量任务列表（同步合并的目标集合；与 _file.Todos 同引用）。</summary>
+    public List<TodoItem> AllTodos => _file.Todos;
     public (int X, int Y) PanelPosition => (_file.PanelX, _file.PanelY);
 
     public void SavePanelPosition(double x, double y)
@@ -760,6 +780,7 @@ public partial class MainViewModel : ObservableObject
             }
         }
         TodoStore.Save(SavePath, _file);
+        Sync?.OnSaved(() => _file.Todos);   // 同步开启时：存盘 → 推送变更（异步）
     }
 
     private System.Windows.Threading.DispatcherTimer? _saveTimer;

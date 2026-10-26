@@ -46,6 +46,20 @@
                 </Button>
                 <StackPanel Orientation="Horizontal">
                     <TextBlock Text="{Binding StatText}" Foreground="{StaticResource Brush.TextTertiary}" FontSize="11"/>
+                    <!-- 同步状态：点击打开云同步设置 -->
+                    <TextBlock Text="{Binding SyncStatus}" Foreground="{StaticResource Brush.Accent}"
+                               FontSize="11" Margin="12,0,0,0" Cursor="Hand"
+                               MouseLeftButtonUp="SyncStatus_Click">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding SyncStatus}" Value="">
+                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
                     <TextBlock Text="{Binding Toast}" Foreground="{StaticResource Brush.Orange}" FontSize="11" Margin="12,0,0,0">
                         <TextBlock.Style>
                             <Style TargetType="TextBlock">

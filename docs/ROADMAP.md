@@ -57,7 +57,7 @@
 
 - [ ] S0 服务器安全整改（公网裸奔的 MySQL/Redis/Nacos/MQTT 端口收紧）—— 用户暂缓，上线前至少确认数据库密码
 - [x] S1 TodoSync Server 已上线 https://47.112.114.139（2026-10-26 systemd+Nginx443 自签反代，公网配对/推/拉验收通过；运维手册 server/TodoSync/README.md）
-- [ ] S2 桌面 v1.5 同步模块（本地优先、LWW 合并、updatedAt/墓碑）
+- [x] S2 桌面同步模块（SyncService+SyncOps：存盘推/30s 心跳拉/墓碑重试/证书钉扎设置；真服务器四链路验收，54 测试绿）
 - [ ] S3 Flutter APP MVP（任务树/增删改/勾选/计时/今日视图）
 
 ## 候选（后续考虑，未排期）

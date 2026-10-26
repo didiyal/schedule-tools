@@ -306,6 +306,11 @@ public partial class MainWindow : Window
     private void PanelBtn_Click(object sender, RoutedEventArgs e)
         => (Application.Current as App)?.TogglePanel();
 
+    private void SyncStatus_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        if (_vm.Sync is { } sync) SyncDialog.Show(this, sync);
+    }
+
     private void MenuPanelVisible_Click(object sender, RoutedEventArgs e)
     {
         if (Row((MenuItem)sender) is { } row) _vm.TogglePanelVisible(row.Todo.Id);

@@ -130,7 +130,10 @@ app.MapPost("/api/changes", (HttpContext ctx, ChangesReq? req) =>
         var accepted = 0;
         foreach (var it in req.Items)
         {
-            if (string.IsNullOrEmpty(it.Id) || it.Json.ValueKind != JsonValueKind.Object) continue;
+            if (string.IsNullOrEmpty(it.Id)) continue;
+            // 墓碑（DeletedAt 非空）允许 json 缺失/非对象——删除只关心 id 与时间
+            if (it.DeletedAt is null && (it.Json.ValueKind != JsonValueKind.Object
+                || it.Json.TryGetProperty("id", out _) is false)) continue;
             using (var q = db.CreateCommand())
             {
                 q.CommandText = "SELECT updated_at FROM todos WHERE id=@id";
@@ -140,10 +143,12 @@ app.MapPost("/api/changes", (HttpContext ctx, ChangesReq? req) =>
             }
             Exec(db, """
                 INSERT INTO todos(id,json,updated_at,deleted_at,version) VALUES(@id,@j,@u,@d,@v)
-                ON CONFLICT(id) DO UPDATE SET json=@j, updated_at=@u, deleted_at=@d, version=@v
+                ON CONFLICT(id) DO UPDATE SET
+                    json=CASE WHEN @d IS NULL THEN @j ELSE json END,
+                    updated_at=@u, deleted_at=@d, version=@v
                 """,
-                ("@id", it.Id), ("@j", it.Json.GetRawText()), ("@u", it.UpdatedAt),
-                ("@d", it.DeletedAt), ("@v", ver));
+                ("@id", it.Id), ("@j", it.Json.ValueKind == JsonValueKind.Object ? it.Json.GetRawText() : "{}"),
+                ("@u", it.UpdatedAt), ("@d", it.DeletedAt), ("@v", ver));
             accepted++;
         }
         if (accepted > 0)

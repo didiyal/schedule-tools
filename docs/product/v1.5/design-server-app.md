@@ -84,8 +84,14 @@
 - **S1** ✅ 2026-10-26 上线：`server/TodoSync/` systemd 常驻 + Nginx 443 自签反代，
   公网 `https://47.112.114.139` 全流程验收通过（配对/推/拉/UTF-8/401），
   证书指纹与运维手册见 `server/TodoSync/README.md`
-- **S2** 桌面 v1.5 同步模块（推拉合并 + 设置 UI）—— 下一步
-- **S3** Flutter APP MVP —— S2 后启动
+- **S2** ✅ 2026-10-26 完成：桌面 SyncService（存盘自动推 + 30s 心跳拉 + 墓碑重试 +
+  证书钉扎设置对话框）。真实服务器端到端四链路验证通过（新建即推/修改即推/
+  下行合并/删除墓碑），54/54 测试绿。已知坑：
+  ①Poll 合并列表必须传 `_file.Todos` 引用（ToList 副本=白改）；
+  ②CLI/合并改动不经 Save，对账必须挂在心跳上；
+  ③墓碑上行失败（服务端曾拒 json=null）会永久滞留 → 已加重试+服务端确认清除；
+  ④合并回调在后台线程，Rebuild/Save 须 Dispatcher.BeginInvoke 切回 UI 线程
+- **S3** Flutter APP MVP —— 下一步
 - 桌面端接入方式：设置里粘贴服务器 `admin.token`（`/www/wwwroot/todosync/data/admin.token`）
 
 ## 待决问题

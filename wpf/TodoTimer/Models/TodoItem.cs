@@ -23,4 +23,5 @@ public sealed class TodoItem
     [JsonPropertyName("reminded")] public bool Reminded { get; set; }
     [JsonPropertyName("date")] public string Date { get; set; } = TodayStr();
     [JsonPropertyName("archived_at")] public string? ArchivedAt { get; set; }   // 仅 archive.json 使用
+    [JsonPropertyName("updated_at")] public long UpdatedAt { get; set; }        // 同步 LWW 时间戳（秒），旧数据缺省 0
 }
