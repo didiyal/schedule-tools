@@ -91,7 +91,12 @@ public partial class MainWindow : Window
         // 空白区/组头/占位槽上：保持当前让位状态。
         // 占位槽是空 Todo, 若当目标解析必然失败并清掉预览 => 槽位闪烁、永远推不开
         if (row is null || row.IsHeader || row.IsPlaceholder)
-return;
+        {
+            // 悬停槽/组头/空白: 状态保持, 但 Effects 必须回 Move——
+            // 留着 None 的话 OLE 视为目标不可放, 松手直接取消、不触发 Drop
+            if (_pendingDrop is not null) { e.Effects = DragDropEffects.Move; e.Handled = true; }
+            return;
+        }
 
         var action = _vm.ResolveDrop(_dragId, row.Todo.Id, yRatio);
         _pendingDrop = action;
@@ -154,12 +159,12 @@ return;
 
     private void List_Drop(object sender, DragEventArgs e)
     {
+        _vm.ResetPreviewState();               // 先清预览态(不重建), ExecuteDrop 的 Rebuild 即最终态
         if (_dragId is not null && _pendingDrop is not null)
             _vm.ExecuteDrop(_dragId, _pendingDrop);
         _dragId = null;
         _pendingDrop = null;
         Adorner()?.Clear();
-        _vm.ClearDropPreview();
     }
 
     private static bool WalkToButton(DependencyObject? o)

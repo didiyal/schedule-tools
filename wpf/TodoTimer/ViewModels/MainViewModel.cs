@@ -118,6 +118,15 @@ public partial class MainViewModel : ObservableObject
                 CardMargin = new Thickness(depth * 28, 2, 0, 2) });
     }
 
+    /// <summary>静默清预览状态（不重建），供 Drop 路径先重置再 ExecuteDrop。</summary>
+    public void ResetPreviewState()
+    {
+        _previewKey = null;
+        _previewDragId = null;
+        _previewDrop = null;
+        _previewBlockedTarget = null;
+    }
+
     public void ClearDropPreview()
     {
         if (_previewKey is null) return;
