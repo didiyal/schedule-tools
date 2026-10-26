@@ -1,4 +1,6 @@
+using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Runtime.CompilerServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -7,6 +9,26 @@ using TodoTimer.Models;
 using TodoTimer.ViewModels;
 
 namespace TodoTimer.Views;
+
+/// <summary>面板行 VM：时间走绑定刷新（每秒视觉树递归查找是旧实现的卡顿源）。</summary>
+public sealed class PanelItemVm : INotifyPropertyChanged
+{
+    public TodoItem Todo { get; }
+    public PanelItemVm(TodoItem t) => Todo = t;
+
+    public string TimeText
+    {
+        get => _time;
+        set { _time = value; OnPropertyChanged(); }
+    }
+    private string _time = "";
+
+    public bool StarVisible => Todo.Starred;
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+    private void OnPropertyChanged([CallerMemberName] string? name = null)
+        => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+}
 
 /// <summary>悬浮计时面板：置顶无边框、拖标题栏移动（位置持久化）、1s 刷新实时时长。</summary>
 public partial class TimerPanelWindow : Window
@@ -25,9 +47,13 @@ public partial class TimerPanelWindow : Window
         LocationChanged += (_, _) => { if (_dragEnd) SavePosition(); };
 
         _tick = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
-        _tick.Tick += (_, _) => { RefreshTimes(); _vm.CheckReminders(); };
+        _tick.Tick += (_, _) =>
+        {
+            foreach (var it in _items) it.TimeText = Format(MainViewModel.LiveElapsed(it.Todo));
+            _vm.CheckReminders();
+        };
         _tick.Start();
-        Loaded += (_, _) => RefreshItems();
+        Loaded += (_, _) => RebuildItems();
     }
 
     private bool _dragEnd;
@@ -46,49 +72,38 @@ public partial class TimerPanelWindow : Window
         _vm.SavePanelPosition(Left, Top);
     }
 
+    private readonly ObservableCollection<PanelItemVm> _items = new();
+    private string? _lastIds;
+
+    /// <summary>成员变化才重建（对比可见 id 序列）；时间由 1s tick 写 TimeText 绑定。</summary>
     public void RefreshItems()
     {
-        var items = _vm.PanelTodos.ToList();
-        PanelList.ItemsSource = items;
-        PanelList.Visibility = items.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
-        EmptyHint.Visibility = items.Count > 0 ? Visibility.Collapsed : Visibility.Visible;
-        RefreshTimes();
+        var ids = string.Join(',', _vm.PanelTodos.Select(t => t.Id));
+        if (ids == _lastIds) return;
+        RebuildItems();
     }
 
-    private void RefreshTimes()
+    private void RebuildItems()
     {
-        for (var i = 0; i < PanelList.Items.Count; i++)
-        {
-            if (PanelList.ItemContainerGenerator.ContainerFromIndex(i) is not ContentPresenter cp) continue;
-            if (!cp.IsLoaded) continue;                       // 模板未应用时 FindName 会抛异常（闪退根因）
-            if (cp.Content is not TodoItem t) continue;
-            if (FindDescendant(cp, e => e is TextBlock { Tag: "time" }) is not TextBlock lbl) continue;
-            lbl.Text = Format(MainViewModel.LiveElapsed(t));
-        }
-    }
-
-    private static FrameworkElement? FindDescendant(DependencyObject root, Func<FrameworkElement, bool> pred)
-    {
-        var n = System.Windows.Media.VisualTreeHelper.GetChildrenCount(root);
-        for (var i = 0; i < n; i++)
-        {
-            if (System.Windows.Media.VisualTreeHelper.GetChild(root, i) is not FrameworkElement c) continue;
-            if (pred(c)) return c;
-            var deep = FindDescendant(c, pred);
-            if (deep is not null) return deep;
-        }
-        return null;
+        var todos = _vm.PanelTodos.ToList();
+        _lastIds = string.Join(',', todos.Select(t => t.Id));
+        _items.Clear();
+        foreach (var t in todos)
+            _items.Add(new PanelItemVm(t) { TimeText = Format(MainViewModel.LiveElapsed(t)) });
+        PanelList.ItemsSource = _items;
+        PanelList.Visibility = _items.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        EmptyHint.Visibility = _items.Count > 0 ? Visibility.Collapsed : Visibility.Visible;
     }
 
     private void Toggle_Click(object sender, RoutedEventArgs e)
     {
-        if ((sender as FrameworkElement)?.DataContext is TodoItem t)
+        if ((sender as FrameworkElement)?.DataContext is PanelItemVm { Todo: var t })
             _vm.TogglePanelTimerCommand.Execute(t.Id);
     }
 
     private void Remove_Click(object sender, RoutedEventArgs e)
     {
-        if ((sender as FrameworkElement)?.DataContext is TodoItem t)
+        if ((sender as FrameworkElement)?.DataContext is PanelItemVm { Todo: var t })
             _vm.TogglePanelVisible(t.Id);
     }
 

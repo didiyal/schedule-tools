@@ -112,8 +112,15 @@ public partial class MainViewModel : ObservableObject
             if (!Rows[i].IsHeader && Rows[i].Todo.Id == _previewDrop.TargetId) { idx = i; break; }
         if (idx < 0) return;
         var target = Rows[idx];
-        var depth = _previewDrop.Kind == DropKind.Child ? target.Depth + 1 : target.Depth;
-        Rows.Insert(_previewDrop.Kind == DropKind.SiblingBefore ? idx : idx + 1,
+        var depth = _previewDrop.Kind switch
+        {
+            DropKind.Child => target.Depth + 1,
+            DropKind.Promote => 0,       // 提升为主任务: 槽顶格
+            _ => target.Depth,
+        };
+        var before = _previewDrop.Kind == DropKind.SiblingBefore
+                     || (_previewDrop.Kind == DropKind.Promote && _previewDrop.Before);
+        Rows.Insert(before ? idx : idx + 1,
             new PlanRow { IsPlaceholder = true, Depth = depth,
                 CardMargin = new Thickness(depth * 28, 2, 0, 2) });
     }
@@ -499,8 +506,8 @@ public partial class MainViewModel : ObservableObject
     public int SubtreeExtraCount(string id)
         => _byId.ContainsKey(id) ? TaskTree.Descendants(ParentMap(), id).Count : 0;
 
-    public DropAction? ResolveDrop(string dragId, string targetId, bool childMode, double yRatio)
-        => DropResolver.Resolve(ParentMap(), _byId, dragId, targetId, childMode, yRatio);
+    public DropAction? ResolveDrop(string dragId, string targetId, DropIntent intent, double yRatio)
+        => DropResolver.Resolve(ParentMap(), _byId, dragId, targetId, intent, yRatio);
 
     public bool ExecuteDrop(string dragId, DropAction action)
     {
@@ -515,22 +522,23 @@ public partial class MainViewModel : ObservableObject
         }
         else
         {
-            // 防御（Resolve 已校验过）：兄弟插入仅限同父；顶层维持同日期规则
-            if (w.Parent != target.Parent) return false;
-            if (w.Parent is null
-                && !string.Equals(w.Date, target.Date, StringComparison.Ordinal))
-                return false;
-            // 视觉兄弟组（顶层=同日期组），排除自身后按目标位置插入，组内 order 重排
+            // 同级插入 / 提升为主任务：落进目标所在日组（跨日期=顺带改期）
+            if (action.Kind == DropKind.Promote) w.Parent = null;
+            else if (w.Parent != target.Parent) return false;   // 防御(Resolve 已校验)
+            w.Date = target.Date;
+            var groupDate = target.Date;
             var sibs = _file.Todos
-                .Where(t => t.Parent == w.Parent)
+                .Where(t => t.Parent == (action.Kind == DropKind.Promote ? null : w.Parent))
                 .Where(t => t.Parent is not null
-                            || string.Equals(t.Date, w.Date, StringComparison.Ordinal))
+                            || string.Equals(t.Date, groupDate, StringComparison.Ordinal))
                 .Where(t => t.Id != dragId)
                 .OrderBy(t => t.Order)
                 .ToList();
             var idx = sibs.FindIndex(t => t.Id == action.TargetId);
             if (idx < 0) return false;
-            sibs.Insert(action.Kind == DropKind.SiblingBefore ? idx : idx + 1, w);
+            var before = action.Kind == DropKind.SiblingBefore
+                         || (action.Kind == DropKind.Promote && action.Before);
+            sibs.Insert(before ? idx : idx + 1, w);
             // 用现有 order 升序值按新视觉序全量重排（比 Python zip 截断版更稳）
             var vals = sibs.Select(t => t.Order).OrderBy(v => v).ToList();
             for (var i = 0; i < sibs.Count; i++) sibs[i].Order = vals[i];

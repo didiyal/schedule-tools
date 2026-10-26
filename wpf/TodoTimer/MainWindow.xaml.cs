@@ -59,7 +59,7 @@ public partial class MainWindow : Window
     // （子元素 DragLeave 冒泡/Effects 决定松手/Drop 不触发），连续修了四个坑后弃用。
 
     private bool _dragging;
-    private bool _childHint;         // 拖拽模式迟滞位(同级↔子级切换带 16px 缓冲)
+    private DropIntent _intent;      // 横轴三段当前意图(带迟滞): 提升/同级/子级
 
     private void List_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
@@ -84,6 +84,7 @@ public partial class MainWindow : Window
         if (Math.Abs(pt.X - _downPt.X) < 10 && Math.Abs(pt.Y - _downPt.Y) < 10) return;
         _dragging = true;
         _dragId = _downRowId;
+        _intent = DropIntent.Sibling;   // 默认同级, 移动后按横轴切换
         List.CaptureMouse();            // 捕获后窗口外移动/松手也送到本控件
         ShowGhost(_dragId);
         UpdateDragPoint(pt);
@@ -125,9 +126,20 @@ public partial class MainWindow : Window
         if (row is null || row.IsHeader || row.IsPlaceholder) return;   // 槽/组头/空白: 保持当前状态
         // 横轴分模式(Notion 式)+迟滞: 内容区左侧=同级, 偏右=子级。
         // 独立两轴取代行高三分区, 根治同级/子级来回抖动
-        var relX = pt.X - rect.X - row.Depth * 28;
-        _childHint = _childHint ? relX > 24 : relX > 40;
-        var action = _vm.ResolveDrop(_dragId!, row.Todo.Id, _childHint, yRatio);
+        var relX = pt.X - rect.X;
+        _intent = _intent switch
+        {
+            DropIntent.Promote => relX < 30 ? DropIntent.Promote : relX > 64 ? DropIntent.Child : DropIntent.Sibling,
+            DropIntent.Sibling => relX < 14 ? DropIntent.Promote : relX > 64 ? DropIntent.Child : DropIntent.Sibling,
+            _ => relX < 14 ? DropIntent.Promote : relX < 52 ? DropIntent.Sibling : DropIntent.Child,
+        };
+        _ghost?.SetMode(_intent switch
+        {
+            DropIntent.Promote => "↖ 拖成主任务",
+            DropIntent.Sibling => "⇅ 同级插入",
+            _ => "↳ 成为子任务",
+        });
+        var action = _vm.ResolveDrop(_dragId!, row.Todo.Id, _intent, yRatio);
         _pendingDrop = action;
         // push 模式: 有效=浅蓝让位槽, 无效=红色虚线槽(反馈不能是零)
         _vm.ShowDropPreview(_dragId!, action);
@@ -145,6 +157,18 @@ public partial class MainWindow : Window
                 new System.Windows.Rect(rect.X + 1, rect.Y + 1, rect.Width - 2, rect.Height - 2),
                 6, 6);
 
+            var orange = new System.Windows.Media.SolidColorBrush(
+                System.Windows.Media.Color.FromRgb(0xE8, 0x84, 0x2C));
+            if (action.Kind == DropKind.Promote)
+            {
+                dc.DrawRoundedRectangle(orange, null,
+                    new System.Windows.Rect(rect.X, rect.Y + 2, 4, rect.Height - 4), 2, 2);
+                var y = action.Before ? rect.Y : rect.Y + rect.Height;
+                dc.DrawRoundedRectangle(orange, null,
+                    new System.Windows.Rect(rect.X + 2, y - 2.5,
+                        Math.Max(List.ActualWidth - 8, 240), 5), 2.5, 2.5);
+                return;
+            }
             var green = new System.Windows.Media.SolidColorBrush(
                 System.Windows.Media.Color.FromRgb(0x2B, 0xA2, 0x45));
             var blue = new System.Windows.Media.SolidColorBrush(

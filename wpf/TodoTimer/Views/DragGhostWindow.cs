@@ -59,10 +59,13 @@ public sealed class DragGhostWindow : Window
     {
         var badgeText = new TextBlock { FontSize = 10, Foreground = Brushes.White };
         _badge.Child = badgeText;
+        var stack = new StackPanel();
+        stack.Children.Add(_text);
+        stack.Children.Add(_mode);
         var dock = new DockPanel();
         DockPanel.SetDock(_badge, Dock.Right);
         dock.Children.Add(_badge);
-        dock.Children.Add(_text);
+        dock.Children.Add(stack);
         var host = new Border
         {
             Background = new SolidColorBrush(Color.FromArgb(210, 0x33, 0x70, 0xFF)),
@@ -83,6 +86,15 @@ public sealed class DragGhostWindow : Window
         ShowActivated = false;
         IsHitTestVisible = false;
     }
+
+    private readonly TextBlock _mode = new()
+    {
+        FontSize = 10,
+        Foreground = new SolidColorBrush(Color.FromArgb(220, 255, 255, 255)),
+        Margin = new Thickness(0, 2, 0, 0),
+    };
+
+    public void SetMode(string text) => _mode.Text = text;
 
     public void Show(string text, int subtreeExtra)
     {
