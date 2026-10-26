@@ -181,7 +181,7 @@ public static class RenderPlan
             entries.Insert(1, new PlanRow
             {
                 IsTodaySlot = true,
-                Label = "📅 把任务拖到这里 = 改期到今天",
+                Label = "把任务拖到这里 = 改期到今天",
             });
         }
 

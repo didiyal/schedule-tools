@@ -10,17 +10,26 @@ public static class InputDialog
 {
     public static string? Show(Window owner, string title, string prompt, string initial = "")
     {
-        var box = new TextBox { Text = initial, FontSize = 13, Padding = new Thickness(6, 8, 6, 8) };
-        var ok = new Button { Content = "保存", Width = 76, Height = 28, IsDefault = true };
-        var cancel = new Button { Content = "取消", Width = 76, Height = 28, IsCancel = true, Margin = new Thickness(8, 0, 0, 0) };
+        var box = new TextBox { Text = initial, FontSize = 13, Margin = new Thickness(0, 0, 0, 2) };
+        var ok = new Button
+        {
+            Content = "保存", Width = 76, Height = 30, IsDefault = true,
+            Style = (Style)Application.Current.Resources["BtnPrimary"],
+        };
+        var cancel = new Button
+        {
+            Content = "取消", Width = 76, Height = 30, IsCancel = true,
+            Style = (Style)Application.Current.Resources["BtnSecondary"],
+            Margin = new Thickness(8, 0, 0, 0),
+        };
 
-        var panel = new StackPanel { Margin = new Thickness(18, 14, 18, 14) };
+        var panel = new StackPanel { Margin = new Thickness(18, 16, 18, 16) };
         panel.Children.Add(new TextBlock
         {
             Text = prompt,
             FontSize = 13,
             FontWeight = FontWeights.Bold,
-            Foreground = Brushes.Black,
+            Foreground = new SolidColorBrush(Color.FromRgb(0x1F, 0x23, 0x29)),
             Margin = new Thickness(0, 0, 0, 10),
         });
         panel.Children.Add(box);

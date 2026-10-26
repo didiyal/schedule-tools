@@ -55,8 +55,9 @@ public partial class App : Application
             return;
         }
 
-        // 单实例：已有实例则激活它后退出（--screenshot 冒烟跳过，允许多开验证）
-        var smoke = e.Args.Length > 0 && e.Args[0] == "--screenshot";
+        // 单实例：已有实例则激活它后退出（--screenshot/--panel-shot 冒烟跳过，允许多开验证）
+        var smoke = e.Args.Length > 0 &&
+                    (e.Args[0] == "--screenshot" || e.Args[0] == "--panel-shot");
         _mutex = new Mutex(initiallyOwned: true, @"Local\TodoTimer.WPF", out var isNew);
         if (!isNew && !smoke)
         {
@@ -73,7 +74,7 @@ public partial class App : Application
         };
         base.OnStartup(e);
 
-        var main = new MainWindow { Title = "待办计时器" };
+        var main = new MainWindow { Title = "待办计时器 1.4" };   // 须与 FindWindowW 匹配
         MainWindow = main;
         main.Show();
         InitTray((MainViewModel)main.DataContext);
@@ -81,6 +82,29 @@ public partial class App : Application
         _ipc = new Services.IpcServer(() => vm.LoadFile());
         _ipc.Start();
         if (e.Args.Any(a => a == "--panel")) TogglePanel();
+
+        // 冒烟钩子：--panel-shot <png> 打开面板离屏渲染后自退（自动验收用）
+        var shotIdx = Array.FindIndex(e.Args, a => a == "--panel-shot");
+        if (shotIdx >= 0 && shotIdx + 1 < e.Args.Length)
+        {
+            TogglePanel();
+            Dispatcher.InvokeAsync(() =>
+            {
+                var p = _panel;
+                if (p is null) return;
+                var dpi = System.Windows.Media.VisualTreeHelper.GetDpi(p);
+                var rtb = new System.Windows.Media.Imaging.RenderTargetBitmap(
+                    (int)(p.ActualWidth * dpi.DpiScaleX), (int)(p.ActualHeight * dpi.DpiScaleY),
+                    dpi.PixelsPerInchX, dpi.PixelsPerInchY,
+                    System.Windows.Media.PixelFormats.Pbgra32);
+                rtb.Render(p);
+                var enc = new System.Windows.Media.Imaging.PngBitmapEncoder();
+                enc.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(rtb));
+                using var fs = File.Create(e.Args[shotIdx + 1]);
+                enc.Save(fs);
+                Shutdown();
+            }, DispatcherPriority.ApplicationIdle);
+        }
     }
 
     private void InitTray(MainViewModel vm)

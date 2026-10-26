@@ -40,12 +40,13 @@
 > 现有功能整体重写为 v1.4.0，拖拽「成为子任务」bug 在新版修复。
 > Python 线冻结于 v1.2.0。设计稿：[product/v1.4/design.md](product/v1.4/design.md)。
 
-- [ ] M0 环境(便携 .NET SDK) + 解决方案骨架 + todos.json 兼容读写
+- [x] M0 环境(便携 .NET SDK) + 解决方案骨架 + todos.json 兼容读写
 - [x] M1 每日一棵树 + 完成态 + 筛选 + 搜索
 - [x] M2 树操作全套 + 拖拽三区(bug 修复) + 删整枝撤销 + 归档
 - [x] M3 计时面板 + 托盘 + 自启 + 单实例 + 提醒
 - [x] M4 CLI headless 全命令 + IPC(58372) 写后通知刷新（读写契约与 v1.2 等价）
 - [x] 清理: 删除 workspace/ Python 1.2 代码与多余产物; README 重写; 版本命名 1.4（标题「待办计时器 1.4」, 暂不发布）
+- [x] 美学统一: 设计令牌字典 Themes/TodoTimer.xaml（飞书浅色体系）+ 主窗/面板/对话框/右键菜单/滚动条/复选框换肤 + Segoe Fluent 图标替换 emoji（2026-10-26）
 - [ ] M5 self-contained 发布 + Inno Setup(installer/ 仍指向旧版待更新) + FlaUI 真实路径验收 —— **暂不发布**
 
 ## 候选（后续考虑，未排期）

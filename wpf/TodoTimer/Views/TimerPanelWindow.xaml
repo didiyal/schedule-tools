@@ -5,17 +5,30 @@
         WindowStyle="None" AllowsTransparency="True" Background="Transparent"
         Topmost="True" ShowInTaskbar="False"
         FontFamily="Microsoft YaHei UI">
-    <Border CornerRadius="10" Background="#FFFFFF" BorderBrush="#E3E6EC" BorderThickness="1">
+    <Window.Resources>
+        <DropShadowEffect x:Key="PanelShadow" BlurRadius="18" ShadowDepth="3"
+                          Direction="270" Opacity="0.16"/>
+    </Window.Resources>
+    <Border CornerRadius="10" Background="{StaticResource Brush.Surface}"
+            BorderBrush="{StaticResource Brush.Border}" BorderThickness="1"
+            Effect="{StaticResource PanelShadow}">
         <StackPanel>
             <!-- 标题栏（拖动移动；位置持久化） -->
-            <Border Background="#2BA245" CornerRadius="10,10,0,0" Padding="12,8"
-                    MouseLeftButtonDown="Header_DragMove">
-                <TextBlock Text="⏱ 计时面板" Foreground="White" FontWeight="Bold" FontSize="13"/>
+            <Border Background="Transparent" CornerRadius="10,10,0,0" Padding="12,9"
+                    MouseLeftButtonDown="Header_DragMove"
+                    BorderBrush="{StaticResource Brush.Border}" BorderThickness="0,0,0,1">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="&#xE823;" FontFamily="{StaticResource IconFont}" FontSize="14"
+                               Foreground="{StaticResource Brush.Accent}" VerticalAlignment="Center"/>
+                    <TextBlock Text="计时面板" Foreground="{StaticResource Brush.TextPrimary}"
+                               FontWeight="Bold" FontSize="12.5" Margin="7,0,0,0" VerticalAlignment="Center"/>
+                </StackPanel>
             </Border>
-            <ItemsControl x:Name="PanelList" Margin="8,6,8,2">
+            <ItemsControl x:Name="PanelList" Margin="8,7,8,2">
                 <ItemsControl.ItemTemplate>
                     <DataTemplate>
-                        <Border Background="#F5F6FA" CornerRadius="6" Padding="8,6" Margin="0,2">
+                        <Border x:Name="RowBd" Background="{StaticResource Brush.WindowBg}"
+                                CornerRadius="8" Padding="9,6" Margin="0,2">
                             <Grid>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*"/>
@@ -25,63 +38,67 @@
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
                                 <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
-                                            <TextBlock Text="★" FontSize="11" Foreground="#F5A623"
-                                                       VerticalAlignment="Center" Margin="0,0,3,0">
-                                                <TextBlock.Style>
-                                                    <Style TargetType="TextBlock">
-                                                        <Setter Property="Visibility" Value="Collapsed"/>
-                                                        <Style.Triggers>
-                                                            <DataTrigger Binding="{Binding StarVisible}" Value="True">
-                                                                <Setter Property="Visibility" Value="Visible"/>
-                                                            </DataTrigger>
-                                                        </Style.Triggers>
-                                                    </Style>
-                                                </TextBlock.Style>
-                                            </TextBlock>
-                                            <TextBlock Text="{Binding Todo.Text}" FontSize="12"
-                                                       TextTrimming="CharacterEllipsis" VerticalAlignment="Center">
-                                            <TextBlock.Style>
-                                                <Style TargetType="TextBlock">
-                                                    <Setter Property="Foreground" Value="#1F2329"/>
-                                                    <Style.Triggers>
-                                                        <DataTrigger Binding="{Binding Completed}" Value="True">
-                                                            <Setter Property="Foreground" Value="#9AA3AF"/>
-                                                            <Setter Property="TextDecorations" Value="Strikethrough"/>
-                                                        </DataTrigger>
-                                                    </Style.Triggers>
-                                                </Style>
-                                            </TextBlock.Style>
-                                        </TextBlock>
-                                        </StackPanel>
+                                    <TextBlock Text="&#xE735;" FontFamily="{StaticResource IconFont}" FontSize="11"
+                                               Foreground="{StaticResource Brush.Star}"
+                                               VerticalAlignment="Center" Margin="0,0,4,0">
+                                        <TextBlock.Style>
+                                            <Style TargetType="TextBlock">
+                                                <Setter Property="Visibility" Value="Collapsed"/>
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding StarVisible}" Value="True">
+                                                        <Setter Property="Visibility" Value="Visible"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
+                                    <TextBlock Text="{Binding Todo.Text}" FontSize="12"
+                                               TextTrimming="CharacterEllipsis" VerticalAlignment="Center">
+                                        <TextBlock.Style>
+                                            <Style TargetType="TextBlock">
+                                                <Setter Property="Foreground" Value="{StaticResource Brush.TextPrimary}"/>
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding Completed}" Value="True">
+                                                        <Setter Property="Foreground" Value="#9AA3AF"/>
+                                                        <Setter Property="TextDecorations" Value="Strikethrough"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
+                                </StackPanel>
                                 <TextBlock x:Name="TimeLbl" Tag="time" Grid.Column="1" FontSize="12" Text="{Binding TimeText}"
-                                           Foreground="#2BA245" VerticalAlignment="Center" Margin="6,0"/>
-                                <Button x:Name="ToggleBtn" Grid.Column="2" Width="24" Height="22"
-                                        Click="Toggle_Click" Cursor="Hand"/>
-                                <Button Grid.Column="3" Content="✓" Width="22" Height="22"
-                                        Click="Complete_Click" Cursor="Hand"
-                                        Background="Transparent" BorderThickness="0"
-                                        Foreground="#2BA245"/>
-                                <Button Grid.Column="4" Content="✕" Width="22" Height="22"
-                                        Click="Remove_Click" Cursor="Hand"
-                                        Background="Transparent" BorderThickness="0"
-                                        Foreground="#B0B6BF"/>
+                                           Foreground="{StaticResource Brush.TextTertiary}" VerticalAlignment="Center" Margin="6,0"/>
+                                <Button x:Name="ToggleBtn" Grid.Column="2" Width="26" Height="24"
+                                        Style="{StaticResource IconBtn}" Foreground="{StaticResource Brush.Accent}"
+                                        FontSize="12" Click="Toggle_Click" Cursor="Hand"/>
+                                <Button Grid.Column="3" Width="26" Height="24"
+                                        Style="{StaticResource IconBtn}" Foreground="{StaticResource Brush.Success}"
+                                        FontSize="12" Content="&#xE73E;"
+                                        Click="Complete_Click" Cursor="Hand"/>
+                                <Button Grid.Column="4" Width="26" Height="24"
+                                        Style="{StaticResource IconBtn}" Foreground="{StaticResource Brush.TextQuaternary}"
+                                        FontSize="11" Content="&#xE711;"
+                                        Click="Remove_Click" Cursor="Hand"/>
                             </Grid>
                         </Border>
                         <DataTemplate.Triggers>
                             <DataTrigger Binding="{Binding Running}" Value="True">
-                                <Setter TargetName="ToggleBtn" Property="Content" Value="⏸"/>
-                                <Setter TargetName="TimeLbl" Property="Foreground" Value="#2BA245"/>
+                                <Setter TargetName="ToggleBtn" Property="Content" Value="&#xE769;"/>
+                                <Setter TargetName="TimeLbl" Property="Foreground" Value="{StaticResource Brush.SuccessText}"/>
+                                <Setter TargetName="RowBd" Property="Background" Value="#E8F7EE"/>
                             </DataTrigger>
                             <DataTrigger Binding="{Binding Running}" Value="False">
-                                <Setter TargetName="ToggleBtn" Property="Content" Value="▶"/>
-                                <Setter TargetName="TimeLbl" Property="Foreground" Value="#8A919F"/>
+                                <Setter TargetName="ToggleBtn" Property="Content" Value="&#xE768;"/>
+                                <Setter TargetName="TimeLbl" Property="Foreground" Value="{StaticResource Brush.TextTertiary}"/>
                             </DataTrigger>
                         </DataTemplate.Triggers>
                     </DataTemplate>
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
-            <TextBlock x:Name="EmptyHint" Text="双击主窗口任务加入面板" Foreground="#B0B6BF"
-                       FontSize="11" Margin="10,4,10,10"/>
+            <TextBlock x:Name="EmptyHint" Text="双击主窗口任务加入面板"
+                       Foreground="{StaticResource Brush.TextQuaternary}"
+                       FontSize="11" Margin="12,4,12,10"/>
         </StackPanel>
     </Border>
 </Window>
