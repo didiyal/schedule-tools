@@ -22,6 +22,7 @@
                                     <ColumnDefinition Width="Auto"/>
                                     <ColumnDefinition Width="Auto"/>
                                     <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
                                 <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
                                             <TextBlock Text="★" FontSize="11" Foreground="#F5A623"
@@ -38,25 +39,40 @@
                                                 </TextBlock.Style>
                                             </TextBlock>
                                             <TextBlock Text="{Binding Todo.Text}" FontSize="12"
-                                                       TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
-                                                       Foreground="#1F2329"/>
+                                                       TextTrimming="CharacterEllipsis" VerticalAlignment="Center">
+                                            <TextBlock.Style>
+                                                <Style TargetType="TextBlock">
+                                                    <Setter Property="Foreground" Value="#1F2329"/>
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding Completed}" Value="True">
+                                                            <Setter Property="Foreground" Value="#9AA3AF"/>
+                                                            <Setter Property="TextDecorations" Value="Strikethrough"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </TextBlock.Style>
+                                        </TextBlock>
                                         </StackPanel>
                                 <TextBlock x:Name="TimeLbl" Tag="time" Grid.Column="1" FontSize="12" Text="{Binding TimeText}"
                                            Foreground="#2BA245" VerticalAlignment="Center" Margin="6,0"/>
                                 <Button x:Name="ToggleBtn" Grid.Column="2" Width="24" Height="22"
                                         Click="Toggle_Click" Cursor="Hand"/>
-                                <Button Grid.Column="3" Content="✕" Width="22" Height="22"
+                                <Button Grid.Column="3" Content="✓" Width="22" Height="22"
+                                        Click="Complete_Click" Cursor="Hand"
+                                        Background="Transparent" BorderThickness="0"
+                                        Foreground="#2BA245"/>
+                                <Button Grid.Column="4" Content="✕" Width="22" Height="22"
                                         Click="Remove_Click" Cursor="Hand"
                                         Background="Transparent" BorderThickness="0"
                                         Foreground="#B0B6BF"/>
                             </Grid>
                         </Border>
                         <DataTemplate.Triggers>
-                            <DataTrigger Binding="{Binding Todo.Running}" Value="True">
+                            <DataTrigger Binding="{Binding Running}" Value="True">
                                 <Setter TargetName="ToggleBtn" Property="Content" Value="⏸"/>
                                 <Setter TargetName="TimeLbl" Property="Foreground" Value="#2BA245"/>
                             </DataTrigger>
-                            <DataTrigger Binding="{Binding Todo.Running}" Value="False">
+                            <DataTrigger Binding="{Binding Running}" Value="False">
                                 <Setter TargetName="ToggleBtn" Property="Content" Value="▶"/>
                                 <Setter TargetName="TimeLbl" Property="Foreground" Value="#8A919F"/>
                             </DataTrigger>

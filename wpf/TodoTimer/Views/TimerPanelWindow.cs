@@ -24,6 +24,11 @@ public sealed class PanelItemVm : INotifyPropertyChanged
     private string _time = "";
 
     public bool StarVisible => Todo.Starred;
+    public bool Running => Todo.Running;
+    public bool Completed => Todo.Completed;
+
+    /// <summary>数据改后全量重读（TodoItem 无 INPC，行内状态靠这里推给绑定）。</summary>
+    public void Refresh() => OnPropertyChanged(null);
 
     public event PropertyChangedEventHandler? PropertyChanged;
     private void OnPropertyChanged([CallerMemberName] string? name = null)
@@ -97,14 +102,29 @@ public partial class TimerPanelWindow : Window
 
     private void Toggle_Click(object sender, RoutedEventArgs e)
     {
-        if ((sender as FrameworkElement)?.DataContext is PanelItemVm { Todo: var t })
-            _vm.TogglePanelTimerCommand.Execute(t.Id);
+        if ((sender as FrameworkElement)?.DataContext is PanelItemVm item)
+        {
+            _vm.TogglePanelTimerCommand.Execute(item.Todo.Id);
+            item.Refresh();
+        }
     }
 
     private void Remove_Click(object sender, RoutedEventArgs e)
     {
-        if ((sender as FrameworkElement)?.DataContext is PanelItemVm { Todo: var t })
-            _vm.TogglePanelVisible(t.Id);
+        if ((sender as FrameworkElement)?.DataContext is PanelItemVm item)
+        {
+            _vm.TogglePanelVisible(item.Todo.Id);
+            RebuildItems();
+        }
+    }
+
+    private void Complete_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.DataContext is PanelItemVm item)
+        {
+            _vm.ToggleCompleteCommand.Execute(item.Todo.Id);
+            item.Refresh();
+        }
     }
 
     protected override void OnClosing(CancelEventArgs e)
