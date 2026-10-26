@@ -54,7 +54,11 @@ public partial class MainWindow : Window
         };
     }
 
-    // ── 拖拽三区（解析在 DropResolver 纯函数，这里只做命中与视觉）──
+    // ── 拖拽（手动循环：鼠标捕获 + 自家事件）──
+    // 不走 OLE DoDragDrop——其 DragOver/Drop 在"让位重排"场景下语义不可控
+    // （子元素 DragLeave 冒泡/Effects 决定松手/Drop 不触发），连续修了四个坑后弃用。
+
+    private bool _dragging;
 
     private void List_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
@@ -67,41 +71,62 @@ public partial class MainWindow : Window
 
     private void List_PreviewMouseMove(object sender, MouseEventArgs e)
     {
-        if (e.LeftButton != MouseButtonState.Pressed || _downRowId is null || _dragId is not null)
+        if (_dragging)
+        {
+            UpdateDragPoint(e.GetPosition(List));
+            _ghost?.MoveToCursor();
             return;
-        if (_downOnButton)return;
+        }
+        if (e.LeftButton != MouseButtonState.Pressed || _downRowId is null) return;
+        if (_downOnButton) return;
         var pt = e.GetPosition(List);
         if (Math.Abs(pt.X - _downPt.X) < 10 && Math.Abs(pt.Y - _downPt.Y) < 10) return;
+        _dragging = true;
         _dragId = _downRowId;
+        List.CaptureMouse();            // 捕获后窗口外移动/松手也送到本控件
         ShowGhost(_dragId);
-        DragDrop.DoDragDrop(List, new DataObject(DataFormats.StringFormat, _dragId), DragDropEffects.Move);
-        _ghost?.Hide();
+        UpdateDragPoint(pt);
+    }
+
+    private void List_PreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+        => EndDrag(apply: _pendingDrop is not null);
+
+    protected override void OnPreviewKeyDown(KeyEventArgs e)
+    {
+        if (_dragging && e.Key == Key.Escape) { EndDrag(apply: false); e.Handled = true; return; }
+        base.OnPreviewKeyDown(e);
+    }
+
+    private void EndDrag(bool apply)
+    {
+        if (!_dragging) return;
+        _dragging = false;
+        if (apply && _dragId is not null && _pendingDrop is not null)
+        {
+            _vm.ResetPreviewState();    // 先清预览态(不重建), ExecuteDrop 的 Rebuild 即最终态
+            _vm.ExecuteDrop(_dragId, _pendingDrop);
+        }
+        else
+        {
+            _vm.ClearDropPreview();     // 取消/无效落点: 恢复原排布
+        }
         _dragId = null;
         _pendingDrop = null;
         Adorner()?.Clear();
+        _ghost?.Hide();
+        List.ReleaseMouseCapture();
     }
 
-    private void List_DragOver(object sender, DragEventArgs e)
+    /// <summary>拖拽中按光标位置更新命中/落点/预览（原 DragOver 主体，去掉 OLE 语义）。</summary>
+    private void UpdateDragPoint(Point pt)
     {
-        e.Effects = DragDropEffects.None;
-        _dragId ??= e.Data.GetData(DataFormats.StringFormat) as string;
-        if (_dragId is null) return;
-        var pt = e.GetPosition(List);
         var (row, yRatio, rect) = RowFromPoint(pt);
-        // 空白区/组头/占位槽上：保持当前让位状态。
-        // 占位槽是空 Todo, 若当目标解析必然失败并清掉预览 => 槽位闪烁、永远推不开
-        if (row is null || row.IsHeader || row.IsPlaceholder)
-        {
-            // 悬停槽/组头/空白: 状态保持, 但 Effects 必须回 Move——
-            // 留着 None 的话 OLE 视为目标不可放, 松手直接取消、不触发 Drop
-            if (_pendingDrop is not null) { e.Effects = DragDropEffects.Move; e.Handled = true; }
-            return;
-        }
-
-        var action = _vm.ResolveDrop(_dragId, row.Todo.Id, yRatio);
+        if (row is null || row.IsHeader || row.IsPlaceholder) return;   // 槽/组头/空白: 保持当前状态
+        var action = _vm.ResolveDrop(_dragId!, row.Todo.Id, yRatio);
         _pendingDrop = action;
         // push 模式: 有效=浅蓝让位槽, 无效=红色虚线槽(反馈不能是零)
-        _vm.ShowDropPreview(_dragId, action);
+        _vm.ShowDropPreview(_dragId!, action);
+        if (action is null) { Adorner()?.Clear(); return; }   // 红槽即指示, 不画线
 
         var indent = row.Depth * 28;
         var ad = Adorner();
@@ -142,29 +167,6 @@ public partial class MainWindow : Window
                     new System.Windows.Point(rect.X + indent + 5, y), 6, 6);
             }
         });
-        e.Effects = DragDropEffects.Move;
-        e.Handled = true;
-    }
-
-    private void List_DragLeave(object sender, DragEventArgs e)
-    {
-        // DragLeave 会从子元素冒泡：自家让位重排造成光标下元素切换也会触发"假离开"，
-        // 一清预览就死循环（重排→假离开→清除→再重排）。只有光标真正离开列表才清。
-        var pt = e.GetPosition(List);
-        if (pt.X >= 0 && pt.Y >= 0 && pt.X <= List.ActualWidth && pt.Y <= List.ActualHeight)
-        {
-            return;
-        }
-    }
-
-    private void List_Drop(object sender, DragEventArgs e)
-    {
-        _vm.ResetPreviewState();               // 先清预览态(不重建), ExecuteDrop 的 Rebuild 即最终态
-        if (_dragId is not null && _pendingDrop is not null)
-            _vm.ExecuteDrop(_dragId, _pendingDrop);
-        _dragId = null;
-        _pendingDrop = null;
-        Adorner()?.Clear();
     }
 
     private static bool WalkToButton(DependencyObject? o)
@@ -198,12 +200,6 @@ public partial class MainWindow : Window
         if (_vm.GetTodo(id) is not { } t) return;
         _ghost ??= new DragGhostWindow();
         _ghost.Show(t.Text, _vm.SubtreeExtraCount(id));
-    }
-
-    private void List_QueryContinueDrag(object sender, QueryContinueDragEventArgs e)
-    {
-        if (e.EscapePressed) e.Action = DragAction.Cancel;   // Esc 取消拖拽
-        _ghost?.MoveToCursor();
     }
 
     private DropAdorner? Adorner()

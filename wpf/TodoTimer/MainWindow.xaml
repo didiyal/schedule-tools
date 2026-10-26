@@ -80,13 +80,9 @@
                  VirtualizingPanel.VirtualizationMode="Recycling"
                  SelectedValuePath="Todo.Id"
                  SelectedValue="{Binding SelectedId}"
-                 AllowDrop="True"
                  PreviewMouseLeftButtonDown="List_PreviewMouseLeftButtonDown"
                  PreviewMouseMove="List_PreviewMouseMove"
-                 DragOver="List_DragOver"
-                 DragLeave="List_DragLeave"
-                 Drop="List_Drop"
-                 QueryContinueDrag="List_QueryContinueDrag">
+                 PreviewMouseLeftButtonUp="List_PreviewMouseLeftButtonUp">
             <ListBox.InputBindings>
                 <KeyBinding Key="Tab" Command="{Binding IndentSelectedCommand}"/>
                 <KeyBinding Key="Tab" Modifiers="Shift" Command="{Binding OutdentSelectedCommand}"/>
