@@ -56,7 +56,7 @@
 > 设计稿：[product/v1.5/design-server-app.md](product/v1.5/design-server-app.md)。
 
 - [ ] S0 服务器安全整改（公网裸奔的 MySQL/Redis/Nacos/MQTT 端口收紧）—— 用户暂缓，上线前至少确认数据库密码
-- [x] S1 TodoSync Server 代码 + 本地端到端冒烟（`server/TodoSync/`，`smoke.sh` 全绿；部署待服务器 SSH 通道）
+- [x] S1 TodoSync Server 已上线 https://47.112.114.139（2026-10-26 systemd+Nginx443 自签反代，公网配对/推/拉验收通过；运维手册 server/TodoSync/README.md）
 - [ ] S2 桌面 v1.5 同步模块（本地优先、LWW 合并、updatedAt/墓碑）
 - [ ] S3 Flutter APP MVP（任务树/增删改/勾选/计时/今日视图）
 

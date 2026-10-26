@@ -80,11 +80,13 @@
 
 ## 里程碑
 
-- **S0** 安全整改（防火墙收紧）——半小时
-- **S1** TodoSync Server 上线（SQLite + 配对 + 全量/增量 API + systemd + HTTPS）
-- **S2** 桌面 v1.5 同步模块（推拉合并 + 设置 UI）
-- **S3** Flutter APP MVP
-- S1~S3 可并行推进；S2/S3 都依赖 S1。
+- **S0** 安全整改（防火墙收紧）—— 用户暂缓（认为另有阿里云防火墙层；SWAS 443 规则本就存在，服务端未新增端口）
+- **S1** ✅ 2026-10-26 上线：`server/TodoSync/` systemd 常驻 + Nginx 443 自签反代，
+  公网 `https://47.112.114.139` 全流程验收通过（配对/推/拉/UTF-8/401），
+  证书指纹与运维手册见 `server/TodoSync/README.md`
+- **S2** 桌面 v1.5 同步模块（推拉合并 + 设置 UI）—— 下一步
+- **S3** Flutter APP MVP —— S2 后启动
+- 桌面端接入方式：设置里粘贴服务器 `admin.token`（`/www/wwwroot/todosync/data/admin.token`）
 
 ## 待决问题
 
