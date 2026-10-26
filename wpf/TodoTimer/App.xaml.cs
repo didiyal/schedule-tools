@@ -34,17 +34,22 @@ public partial class App : Application
 
     protected override void OnStartup(StartupEventArgs e)
     {
-        // cli 子命令: 挂接父控制台输出后 headless 执行, 不进 GUI（单实例检测之前）
+        // cli 子命令: headless 执行, 不进 GUI（单实例检测之前）
         if (e.Args.Length > 0 && e.Args[0] == "cli")
         {
-            AttachConsole(ATTACH_PARENT_PROCESS);
+            // stdout 被重定向(管道/文件)时绝不能 AttachConsole——它会把进程标准句柄
+            // 重置回控制屏(CONOUT$), 覆盖掉重定向句柄 => 零输出。仅交互场景才挂。
+            bool redirected;
+            try { redirected = Console.IsOutputRedirected; }
+            catch { redirected = false; }
+            if (!redirected) AttachConsole(ATTACH_PARENT_PROCESS);
             Console.SetOut(new System.IO.StreamWriter(Console.OpenStandardOutput(),
                 new System.Text.UTF8Encoding(false)) { AutoFlush = true });
             Console.SetError(new System.IO.StreamWriter(Console.OpenStandardError(),
                 new System.Text.UTF8Encoding(false)) { AutoFlush = true });
             var code = Services.CliRunner.Run(e.Args.Skip(1).ToArray());
-            Console.WriteLine();                 // 还控制台提示符给 shell
-            FreeConsole();
+            if (!redirected) Console.WriteLine();   // 还控制台提示符给 shell（重定向时不污染输出）
+            if (!redirected) FreeConsole();
             Environment.ExitCode = code;
             Shutdown(code);
             return;
