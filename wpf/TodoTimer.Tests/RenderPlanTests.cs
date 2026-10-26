@@ -15,8 +15,8 @@ public sealed class RenderPlanTests
     };
 
     private static List<PlanRow> Compute(List<TodoItem> todos, FilterState filter = FilterState.All,
-        string? search = null, HashSet<string>? collapsed = null)
-        => RenderPlan.Compute(todos, filter, search, collapsed ?? new HashSet<string>(), Today);
+        string? search = null, HashSet<string>? collapsed = null, bool todayOnly = false)
+        => RenderPlan.Compute(todos, filter, search, collapsed ?? new HashSet<string>(), Today, todayOnly);
 
     private static List<string> CardIds(List<PlanRow> rows)
         => rows.Where(r => !r.IsHeader).Select(r => r.Todo.Id).ToList();
