@@ -1,4 +1,4 @@
-⚠ 2026-10-26 迁移：实现已迁至 C#/WPF(wpf/)，workspace/ Python 代码已删除。CLI 接口改为 `TodoTimer.exe cli ...`（数据契约与下述一致）；本文其余内容仅历史参考。
+⚠ 2026-10-26 迁移：实现已迁至 C#/WPF(wpf/)，workspace/ Python 代码已删除。CLI 接口改为 `TodoTimer.exe cli ...`（13 命令，GUI 在线写=落盘+IPC 通知刷新；本文其余内容仅历史参考）。当前实现权威：wpf/ 代码 + docs/product/v1.4/design.md。
 
 # AGENTS.md — 待办计时器 (scheduleTools/tools)
 
