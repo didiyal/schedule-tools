@@ -215,7 +215,7 @@ public sealed class TreeOpsTests : IDisposable
     }
 
     private static Dictionary<string, TodoItem> vm_DebugTodos(MainViewModel vm)
-        => vm.Rows.Where(r => !r.IsHeader).ToDictionary(r => r.Todo.Id, r => r.Todo);
+        => vm.Rows.Where(r => !r.IsHeader && !r.IsTodaySlot).ToDictionary(r => r.Todo.Id, r => r.Todo);
 
     public void Dispose()
     {

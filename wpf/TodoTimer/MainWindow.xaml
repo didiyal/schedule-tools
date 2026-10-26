@@ -125,6 +125,20 @@
                                 </Style>
                             </TextBlock.Style>
                         </TextBlock>
+                        <!-- 今日空槽文本 -->
+                        <TextBlock Text="{Binding Label}" FontSize="12" Foreground="#E8842C"
+                                   Margin="4,7,4,7">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsTodaySlot}" Value="True">
+                                            <Setter Property="Visibility" Value="Visible"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
                         <!-- 任务卡（默认底色必须走 Style Setter：本地属性会压过触发器） -->
                         <Border Margin="{Binding CardMargin}" Padding="10,7" CornerRadius="6"
                                 MouseLeftButtonDown="Card_MouseDown">
@@ -158,6 +172,11 @@
                                             <Setter Property="Background" Value="#FDECEC"/>
                                             <Setter Property="BorderBrush" Value="#E5484D"/>
                                         </DataTrigger>
+                                        <DataTrigger Binding="{Binding IsTodaySlot}" Value="True">
+                                            <Setter Property="Background" Value="#FFF7E6"/>
+                                            <Setter Property="BorderBrush" Value="#E8842C"/>
+                                            <Setter Property="BorderThickness" Value="1"/>
+                                        </DataTrigger>
                                         <DataTrigger Binding="{Binding Todo.Completed}" Value="True">
                                             <Setter Property="Background" Value="#E8F7EE"/>
                                         </DataTrigger>
@@ -172,6 +191,9 @@
                                     <Style TargetType="Grid">
                                         <Style.Triggers>
                                             <DataTrigger Binding="{Binding IsPlaceholder}" Value="True">
+                                                <Setter Property="Visibility" Value="Collapsed"/>
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding IsTodaySlot}" Value="True">
                                                 <Setter Property="Visibility" Value="Collapsed"/>
                                             </DataTrigger>
                                         </Style.Triggers>

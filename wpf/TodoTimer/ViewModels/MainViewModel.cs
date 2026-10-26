@@ -31,7 +31,21 @@ public partial class MainViewModel : ObservableObject
     public string DataDir { get; }
 
     public MainViewModel(string? dataDir = null)
-        => DataDir = dataDir ?? Path.Combine(AppContext.BaseDirectory, "data");
+        => DataDir = dataDir ?? ResolveDataDir();
+
+    /// <summary>便携语义同 Python：打包版读 EXE 旁 data/；开发构建读仓库 data/。</summary>
+    private static string ResolveDataDir()
+    {
+        var baseDir = AppContext.BaseDirectory;
+        var binDebug = "bin\\Debug\\";
+        var binRelease = "bin\\Release\\";
+        if (baseDir.Contains(binDebug) || baseDir.Contains(binRelease))
+        {
+            var repo = Path.GetFullPath(Path.Combine(baseDir, "..", "..", "..", "..", ".."));
+            return Path.Combine(repo, "data");
+        }
+        return Path.Combine(baseDir, "data");
+    }
 
     /// <summary>未完成/已完成双勾或都不勾 = 全部（v1.2 语义）。</summary>
     private FilterState EffectiveFilter =>
@@ -614,6 +628,18 @@ public partial class MainViewModel : ObservableObject
                 t.LastStartedAt = (int)now;
             }
         }
+    }
+
+    /// <summary>把任务改期到今天并提升为顶层（今日空槽的拖放落点）。</summary>
+    public void MoveToToday(string id)
+    {
+        if (!_byId.TryGetValue(id, out var t)) return;
+        if (t.Running) { t.Elapsed = LiveElapsed(t); t.Running = false; t.LastStartedAt = null; }
+        t.Parent = null;
+        t.Date = TodoItem.TodayStr();
+        t.Order = _nextOrder++;
+        Rebuild();
+        Save();
     }
 
     /// <summary>目标时长提醒检查（由面板/主窗 1s tick 调用）。</summary>

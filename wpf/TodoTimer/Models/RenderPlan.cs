@@ -11,6 +11,7 @@ public sealed class PlanRow
     public bool IsHeader { get; init; }
     public bool IsPlaceholder { get; init; }
     public bool IsBlocked { get; init; }
+    public bool IsTodaySlot { get; init; }
     public string Label { get; init; } = "";
     public TodoItem Todo { get; init; } = new();
     public int Depth { get; init; }
@@ -163,11 +164,26 @@ public static class RenderPlan
             }
         }
 
+
         if (!entries.Any(e => !e.IsHeader))
         {
             entries.Clear();
             entries.Add(new PlanRow { IsHeader = true, Label = "暂无待办" });
+            return entries;   // 空列表: 只给「暂无待办」, 不出今日槽(无可拖之物)
         }
+
+        // 今日栏常驻：其他日期有任务而今天没有时, 顶部仍给"今日"槽,
+        // 旧任务可拖入槽=改期到今天
+        if (!rootsByDate.ContainsKey(today))
+        {
+            entries.Insert(0, new PlanRow { IsHeader = true, Label = "▎今日 · 暂无" });
+            entries.Insert(1, new PlanRow
+            {
+                IsTodaySlot = true,
+                Label = "📅 把任务拖到这里 = 改期到今天",
+            });
+        }
+
         return entries;
     }
 }

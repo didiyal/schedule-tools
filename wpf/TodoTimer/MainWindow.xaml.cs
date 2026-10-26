@@ -65,7 +65,7 @@ public partial class MainWindow : Window
     {
         _downPt = e.GetPosition(List);
         var row = RowFromPoint(_downPt).Row;
-        _downRowId = row is { IsHeader: false, IsPlaceholder: false } ? row.Todo.Id : null;
+        _downRowId = row is { IsHeader: false, IsPlaceholder: false, IsTodaySlot: false } ? row.Todo.Id : null;
         if (_downRowId is not null) _vm.ClearDropPreview();   // 清上一轮未落子的残留槽
         _downOnButton = WalkToButton(e.OriginalSource as DependencyObject);
     }
@@ -85,6 +85,7 @@ public partial class MainWindow : Window
         _dragging = true;
         _dragId = _downRowId;
         _intent = DropIntent.Sibling;   // 默认同级, 移动后按横轴切换
+        _pendingToday = false;
         List.CaptureMouse();            // 捕获后窗口外移动/松手也送到本控件
         ShowGhost(_dragId);
         UpdateDragPoint(pt);
@@ -99,11 +100,18 @@ public partial class MainWindow : Window
         base.OnPreviewKeyDown(e);
     }
 
+    private bool _pendingToday;
+
     private void EndDrag(bool apply)
     {
         if (!_dragging) return;
         _dragging = false;
-        if (apply && _dragId is not null && _pendingDrop is not null)
+        if (apply && _dragId is not null && _pendingToday)
+        {
+            _vm.ResetPreviewState();
+            _vm.MoveToToday(_dragId);
+        }
+        else         if (apply && _dragId is not null && _pendingDrop is not null)
         {
             _vm.ResetPreviewState();    // 先清预览态(不重建), ExecuteDrop 的 Rebuild 即最终态
             _vm.ExecuteDrop(_dragId, _pendingDrop);
@@ -123,7 +131,7 @@ public partial class MainWindow : Window
     private void UpdateDragPoint(Point pt)
     {
         var (row, yRatio, rect) = RowFromPoint(pt);
-        if (row is null || row.IsHeader || row.IsPlaceholder) return;   // 槽/组头/空白: 保持当前状态
+        if (row is null || row.IsHeader || row.IsPlaceholder || row.IsTodaySlot) return;   // 槽/组头/空白: 保持当前状态
         // 横轴分模式(Notion 式)+迟滞: 内容区左侧=同级, 偏右=子级。
         // 独立两轴取代行高三分区, 根治同级/子级来回抖动
         var relX = pt.X - rect.X;
@@ -139,6 +147,13 @@ public partial class MainWindow : Window
             DropIntent.Sibling => "⇅ 同级插入",
             _ => "↳ 成为子任务",
         });
+        if (row.IsTodaySlot)
+        {
+            _pendingDrop = null;
+            _pendingToday = true;      // 拖入今日空槽 = 改期到今天
+            return;
+        }
+        _pendingToday = false;
         var action = _vm.ResolveDrop(_dragId!, row.Todo.Id, _intent, yRatio);
         _pendingDrop = action;
         // push 模式: 有效=浅蓝让位槽, 无效=红色虚线槽(反馈不能是零)
