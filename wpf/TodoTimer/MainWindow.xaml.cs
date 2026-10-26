@@ -225,7 +225,9 @@ public partial class MainWindow : Window
             if (List.ItemContainerGenerator.ContainerFromIndex(i) is not ListBoxItem lbi) continue;
             var pos = lbi.TranslatePoint(new Point(0, 0), List);
             var h = lbi.ActualHeight;
-            if (ptInList.Y >= pos.Y && ptInList.Y < pos.Y + h)
+            // X 也必须在行内: 滚动条区域(行宽之外)点击会误命中同高度任务并起拖
+            if (ptInList.X >= pos.X && ptInList.X < pos.X + lbi.ActualWidth
+                && ptInList.Y >= pos.Y && ptInList.Y < pos.Y + h)
                 return (List.Items[i] as PlanRow, (ptInList.Y - pos.Y) / (h <= 0 ? 1 : h),
                     new Rect(pos.X, pos.Y, lbi.ActualWidth, h));
         }

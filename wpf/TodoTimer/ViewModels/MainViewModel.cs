@@ -266,10 +266,39 @@ public partial class MainViewModel : ObservableObject
         };
         _file.Todos.Add(t);
         _byId[t.Id] = t;
-        if (parentId != null) Expand(parentId);
+        if (parentId != null)
+        {
+            Expand(parentId);
+            // 首次建子任务: 父任务的时间/面板身份迁移给同名子任务, 父归零
+            // (含子任务任务不可计时/不入面板——迁移后才满足规则)
+            var hadChildren = _file.Todos.Count(x => x.Parent == parentId && x.Id != t.Id) > 0;
+            if (!hadChildren) MigrateParentToChild(parentId);
+        }
         Rebuild();
         ScheduleSave();
         return t.Id;
+    }
+
+    /// <summary>首次建子任务时: 父任务若有时长/在跑/在面板, 生成同名子任务承接时长,
+    /// 父任务归零并移出面板（用户规则: 有子任务者时长=子任务之和且不可入面板）。</summary>
+    private void MigrateParentToChild(string parentId)
+    {
+        if (!_byId.TryGetValue(parentId, out var p)) return;
+        if (!p.Running && p.Elapsed <= 0 && !p.Visible) return;   // 无可迁移
+        if (p.Running) { p.Elapsed = LiveElapsed(p); p.Running = false; p.LastStartedAt = null; }
+        var twin = new TodoItem
+        {
+            Id = (++_nextId).ToString(),
+            Text = p.Text,
+            Parent = parentId,
+            Date = p.Date,
+            Order = _nextOrder++,
+            Elapsed = p.Elapsed,
+        };
+        _file.Todos.Add(twin);
+        _byId[twin.Id] = twin;
+        p.Elapsed = 0;
+        p.Visible = false;
     }
 
     // ── 折叠 ──
