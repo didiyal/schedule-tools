@@ -24,3 +24,6 @@ data/
 bin/
 obj/
 TestResults/
+
+# TodoSync 服务端运行数据（db/令牌，严禁入库）
+server/TodoSync/data/
