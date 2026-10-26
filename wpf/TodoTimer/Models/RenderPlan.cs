@@ -57,7 +57,7 @@ public static class RenderPlan
     }
 
     public static List<PlanRow> Compute(IReadOnlyList<TodoItem> todos, FilterState filter,
-        string? search, IReadOnlySet<string> collapsed, string? today = null)
+        string? search, IReadOnlySet<string> collapsed, string? today = null, bool todayOnly = false)
     {
         today ??= TodoItem.TodayStr();
 
@@ -82,7 +82,8 @@ public static class RenderPlan
             FilterState.Active => !w.Completed,
             FilterState.Completed => w.Completed,
             _ => true,
-        } && (st.Length == 0 || w.Text.ToLowerInvariant().Contains(st));
+        } && (st.Length == 0 || w.Text.ToLowerInvariant().Contains(st))
+          && (!todayOnly || w.Date == today);
 
         // 谓词命中集 + 祖先链保留（retained 中未命中者弱显撑结构）
         var keep = new HashSet<string>();

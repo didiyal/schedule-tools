@@ -35,6 +35,8 @@
                               Margin="10,0,0,0" VerticalAlignment="Center"/>
                     <CheckBox Content="已完成" IsChecked="{Binding FilterCompleted}"
                               Margin="12,0,0,0" VerticalAlignment="Center"/>
+                    <CheckBox Content="只看今日" IsChecked="{Binding FilterToday}"
+                              Margin="12,0,0,0" VerticalAlignment="Center"/>
                 </StackPanel>
             </DockPanel>
         </Border>

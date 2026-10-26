@@ -147,6 +147,23 @@ public sealed class RenderPlanTests
     }
 
     [Fact]
+    public void TodayOnly_DropsCrossDateNodes_KeepsTodayChain()
+    {
+        var todos = new List<TodoItem>
+        {
+            T("p", "今日父", Today),
+            T("c", "昨日子", "2026-10-22", parent: "p"),
+            T("t", "今日子", Today, parent: "p"),
+        };
+        var rows = Compute(todos, todayOnly: true);
+        var ids = rows.Where(r => !r.IsHeader && !r.IsTodaySlot).Select(r => r.Todo.Id).ToList();
+        Assert.Equal(new[] { "p", "t" }, ids);        // 昨日子被剔除, 今日链保留
+        // 只有旧日期任务时: 全部剔除, 但今日槽仍在
+        var old = Compute(new List<TodoItem> { T("o", "旧任务", "2026-10-01") }, todayOnly: true);
+        Assert.Empty(old.Where(r => !r.IsHeader && !r.IsTodaySlot));
+    }
+
+    [Fact]
     public void EmptyList_ShowsFallback()
     {
         var rows = Compute(new List<TodoItem>());

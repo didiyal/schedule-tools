@@ -19,6 +19,7 @@ public partial class MainViewModel : ObservableObject
 
     [ObservableProperty] private bool filterActive;
     [ObservableProperty] private bool filterCompleted;
+    [ObservableProperty] private bool filterToday;
     [ObservableProperty] private string searchText = "";
     [ObservableProperty] private string statText = "";
     [ObservableProperty] private string newTodoText = "";
@@ -173,7 +174,7 @@ public partial class MainViewModel : ObservableObject
     public void Rebuild()
     {
         var sel = SelectedId;
-        var rows = RenderPlan.Compute(_file.Todos, EffectiveFilter, SearchText, _collapsed);
+        var rows = RenderPlan.Compute(_file.Todos, EffectiveFilter, SearchText, _collapsed, todayOnly: FilterToday);
         ApplyPreview(rows);
         // 整表替换：单次 Reset 通知（Clear+逐条 Add 会触发每行一次重排，165 行明显卡顿）
         Rows = new ObservableCollection<PlanRow>(rows);
@@ -191,6 +192,7 @@ public partial class MainViewModel : ObservableObject
 
     partial void OnFilterActiveChanged(bool value) => Rebuild();
     partial void OnFilterCompletedChanged(bool value) => Rebuild();
+    partial void OnFilterTodayChanged(bool value) => Rebuild();
 
     partial void OnAutostartEnabledChanged(bool value)
     {
