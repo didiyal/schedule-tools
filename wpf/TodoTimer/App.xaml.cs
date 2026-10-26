@@ -25,8 +25,30 @@ public partial class App : Application
     [DllImport("user32.dll")]
     private static extern bool SetForegroundWindow(IntPtr hWnd);
 
+    [DllImport("kernel32.dll")]
+    private static extern bool AttachConsole(uint processId);
+    [DllImport("kernel32.dll")]
+    private static extern bool FreeConsole();
+    private const uint ATTACH_PARENT_PROCESS = 0xFFFFFFFF;
+
     protected override void OnStartup(StartupEventArgs e)
     {
+        // cli 子命令: 挂接父控制台输出后 headless 执行, 不进 GUI（单实例检测之前）
+        if (e.Args.Length > 0 && e.Args[0] == "cli")
+        {
+            AttachConsole(ATTACH_PARENT_PROCESS);
+            Console.SetOut(new System.IO.StreamWriter(Console.OpenStandardOutput(),
+                new System.Text.UTF8Encoding(false)) { AutoFlush = true });
+            Console.SetError(new System.IO.StreamWriter(Console.OpenStandardError(),
+                new System.Text.UTF8Encoding(false)) { AutoFlush = true });
+            var code = Services.CliRunner.Run(e.Args.Skip(1).ToArray());
+            Console.WriteLine();                 // 还控制台提示符给 shell
+            FreeConsole();
+            Environment.ExitCode = code;
+            Shutdown(code);
+            return;
+        }
+
         // 单实例：已有实例则激活它后退出（--screenshot 冒烟跳过，允许多开验证）
         var smoke = e.Args.Length > 0 && e.Args[0] == "--screenshot";
         _mutex = new Mutex(initiallyOwned: true, @"Local\TodoTimer.WPF", out var isNew);

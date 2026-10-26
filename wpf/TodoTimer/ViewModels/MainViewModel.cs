@@ -35,7 +35,7 @@ public partial class MainViewModel : ObservableObject
         => DataDir = dataDir ?? ResolveDataDir();
 
     /// <summary>便携语义同 Python：打包版读 EXE 旁 data/；开发构建读仓库 data/。</summary>
-    private static string ResolveDataDir()
+    public static string ResolveDataDir()
     {
         var baseDir = AppContext.BaseDirectory;
         var binDebug = "bin\\Debug\\";
