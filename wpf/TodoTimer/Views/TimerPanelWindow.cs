@@ -54,7 +54,7 @@ public partial class TimerPanelWindow : Window
         _tick = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
         _tick.Tick += (_, _) =>
         {
-            foreach (var it in _items) it.TimeText = Format(MainViewModel.LiveElapsed(it.Todo));
+            foreach (var it in _items) it.TimeText = Format(_vm.EffectiveElapsed(it.Todo));
             _vm.CheckReminders();
         };
         _tick.Start();
@@ -94,7 +94,7 @@ public partial class TimerPanelWindow : Window
         _lastIds = string.Join(',', todos.Select(t => t.Id));
         _items.Clear();
         foreach (var t in todos)
-            _items.Add(new PanelItemVm(t) { TimeText = Format(MainViewModel.LiveElapsed(t)) });
+            _items.Add(new PanelItemVm(t) { TimeText = Format(_vm.EffectiveElapsed(t)) });
         PanelList.ItemsSource = _items;
         PanelList.Visibility = _items.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
         EmptyHint.Visibility = _items.Count > 0 ? Visibility.Collapsed : Visibility.Visible;

@@ -571,10 +571,29 @@ public partial class MainViewModel : ObservableObject
         return t.Elapsed + (int)Math.Max(0, now - t.LastStartedAt.Value);
     }
 
+    private bool HasChildren(string id) => _file.Todos.Any(t => t.Parent == id);
+
+    /// <summary>含子任务的任务: 时长=自身+子任务递归之和（用户拍板, 不可单独计时）。</summary>
+    public int EffectiveElapsed(TodoItem t) => EffectiveElapsed(t, new HashSet<string>());
+
+    private int EffectiveElapsed(TodoItem t, HashSet<string> seen)
+    {
+        var total = LiveElapsed(t);
+        if (!seen.Add(t.Id)) return total;
+        foreach (var c in _file.Todos.Where(x => x.Parent == t.Id))
+            total += EffectiveElapsed(c, seen);
+        return total;
+    }
+
     public void StartTimer(string id)
     {
         if (!_byId.TryGetValue(id, out var t)) return;
         if (t.Completed || t.Running) return;
+        if (HasChildren(id))
+        {
+            ShowToast("含子任务的任务不可单独计时（时长为子任务之和）");
+            return;
+        }
         t.Running = true;
         t.LastStartedAt = (int)DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         Rebuild();
@@ -609,6 +628,11 @@ public partial class MainViewModel : ObservableObject
         }
         else
         {
+            if (HasChildren(id))
+            {
+                ShowToast("含子任务的任务不能加入计时面板（时长为子任务之和）");
+                return;
+            }
             t.Visible = true;
         }
         Rebuild();
