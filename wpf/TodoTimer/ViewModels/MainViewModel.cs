@@ -499,8 +499,8 @@ public partial class MainViewModel : ObservableObject
     public int SubtreeExtraCount(string id)
         => _byId.ContainsKey(id) ? TaskTree.Descendants(ParentMap(), id).Count : 0;
 
-    public DropAction? ResolveDrop(string dragId, string targetId, double yRatio)
-        => DropResolver.Resolve(ParentMap(), _byId, dragId, targetId, yRatio);
+    public DropAction? ResolveDrop(string dragId, string targetId, bool childMode, double yRatio)
+        => DropResolver.Resolve(ParentMap(), _byId, dragId, targetId, childMode, yRatio);
 
     public bool ExecuteDrop(string dragId, DropAction action)
     {

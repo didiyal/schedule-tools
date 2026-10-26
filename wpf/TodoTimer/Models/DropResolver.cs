@@ -12,28 +12,29 @@ public sealed record DropAction(DropKind Kind, string TargetId);
 /// </summary>
 public static class DropResolver
 {
+    /// <summary>横轴分模式（Notion 式）：贴左=同级(上/下半分前/后)，偏右=成为子级。
+    /// 两轴独立天然不抖；yRatio 仅在同级模式内取上/下。</summary>
     public static DropAction? Resolve(IReadOnlyDictionary<string, string?> parents,
         IReadOnlyDictionary<string, TodoItem> byId,
-        string dragId, string targetId, double yRatio)
+        string dragId, string targetId, bool childMode, double yRatio)
     {
         if (dragId == targetId) return null;
         if (!byId.TryGetValue(dragId, out var dw)) return null;
         if (!byId.TryGetValue(targetId, out var tw)) return null;
 
-        if (yRatio < 0.25 || yRatio > 0.75)
-        {
-            // 兄弟插入：仅限同父；顶层维持同日期规则
-            if (ParentOf(parents, dragId) != ParentOf(parents, targetId)) return null;
-            if (ParentOf(parents, dragId) is null
-                && !string.Equals(dw.Date, tw.Date, StringComparison.Ordinal))
-                return null;
-            if (TaskTree.Descendants(parents, dragId).Contains(targetId)) return null;
-            return new DropAction(
-                yRatio < 0.25 ? DropKind.SiblingBefore : DropKind.SiblingAfter, targetId);
-        }
-        return TaskTree.CanAdopt(parents, targetId, dragId)
-            ? new DropAction(DropKind.Child, targetId)
-            : null;
+        if (childMode)
+            return TaskTree.CanAdopt(parents, targetId, dragId)
+                ? new DropAction(DropKind.Child, targetId)
+                : null;
+
+        // 兄弟插入：仅限同父；顶层维持同日期规则
+        if (ParentOf(parents, dragId) != ParentOf(parents, targetId)) return null;
+        if (ParentOf(parents, dragId) is null
+            && !string.Equals(dw.Date, tw.Date, StringComparison.Ordinal))
+            return null;
+        if (TaskTree.Descendants(parents, dragId).Contains(targetId)) return null;
+        return new DropAction(
+            yRatio < 0.5 ? DropKind.SiblingBefore : DropKind.SiblingAfter, targetId);
     }
 
     private static string? ParentOf(IReadOnlyDictionary<string, string?> parents, string id)

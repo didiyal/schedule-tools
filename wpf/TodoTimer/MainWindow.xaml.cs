@@ -59,6 +59,7 @@ public partial class MainWindow : Window
     // （子元素 DragLeave 冒泡/Effects 决定松手/Drop 不触发），连续修了四个坑后弃用。
 
     private bool _dragging;
+    private bool _childHint;         // 拖拽模式迟滞位(同级↔子级切换带 16px 缓冲)
 
     private void List_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
@@ -122,7 +123,11 @@ public partial class MainWindow : Window
     {
         var (row, yRatio, rect) = RowFromPoint(pt);
         if (row is null || row.IsHeader || row.IsPlaceholder) return;   // 槽/组头/空白: 保持当前状态
-        var action = _vm.ResolveDrop(_dragId!, row.Todo.Id, yRatio);
+        // 横轴分模式(Notion 式)+迟滞: 内容区左侧=同级, 偏右=子级。
+        // 独立两轴取代行高三分区, 根治同级/子级来回抖动
+        var relX = pt.X - rect.X - row.Depth * 28;
+        _childHint = _childHint ? relX > 24 : relX > 40;
+        var action = _vm.ResolveDrop(_dragId!, row.Todo.Id, _childHint, yRatio);
         _pendingDrop = action;
         // push 模式: 有效=浅蓝让位槽, 无效=红色虚线槽(反馈不能是零)
         _vm.ShowDropPreview(_dragId!, action);
@@ -133,17 +138,12 @@ public partial class MainWindow : Window
         if (ad is null) return;
         ad.Show(dc =>
         {
-            // 目标行暗色投影 = 被影子压住的碰撞感
-            dc.DrawRoundedRectangle(
-                System.Windows.Media.Brushes.Black, null,
+            // 目标行 12% 暗色叠层 = 被影子压住的碰撞感(显式 alpha, 别盖住内容)
+            var dim = new System.Windows.Media.SolidColorBrush(
+                System.Windows.Media.Color.FromArgb(30, 0, 0, 0));
+            dc.DrawRoundedRectangle(dim, null,
                 new System.Windows.Rect(rect.X + 1, rect.Y + 1, rect.Width - 2, rect.Height - 2),
                 6, 6);
-            dc.PushOpacity(0.12);
-            dc.DrawRoundedRectangle(
-                System.Windows.Media.Brushes.White, null,
-                new System.Windows.Rect(rect.X + 1, rect.Y + 1, rect.Width - 2, rect.Height - 2),
-                6, 6);
-            dc.Pop();
 
             var green = new System.Windows.Media.SolidColorBrush(
                 System.Windows.Media.Color.FromRgb(0x2B, 0xA2, 0x45));

@@ -4,7 +4,7 @@ using TodoTimer.ViewModels;
 
 namespace TodoTimer.Tests;
 
-/// <summary>拖拽落点解析纯函数测试 —— 三区/同父/同日期/成环/超深，对照 Python _resolve_drop。</summary>
+/// <summary>拖拽落点解析纯函数测试 —— 横轴分模式(同级/子级)/同父/同日期/成环/超深。</summary>
 public sealed class DropResolverTests
 {
     private const string Today = "2026-10-23";
@@ -24,17 +24,17 @@ public sealed class DropResolverTests
             new TodoItem { Id = "c", Date = Today, Parent = "a" });
         var parents = ParentsOf(byId);
 
-        // a→b：同为顶层同日期，上下 25% 兄弟插入合法
+        // a→b：同为顶层同日期，同级上半=前插、下半=后插
         Assert.Equal(DropKind.SiblingBefore,
-            DropResolver.Resolve(parents, byId, "a", "b", 0.1)?.Kind);
+            DropResolver.Resolve(parents, byId, "a", "b", false, 0.1)?.Kind);
         Assert.Equal(DropKind.SiblingAfter,
-            DropResolver.Resolve(parents, byId, "a", "b", 0.9)?.Kind);
+            DropResolver.Resolve(parents, byId, "a", "b", false, 0.9)?.Kind);
         // a→c：父不同，兄弟区非法
-        Assert.Null(DropResolver.Resolve(parents, byId, "a", "c", 0.1));
+        Assert.Null(DropResolver.Resolve(parents, byId, "a", "c", false, 0.1));
         // 顶层跨日期：兄弟区非法
         var d = new TodoItem { Id = "d", Date = "2026-10-01" };
         byId["d"] = d;
-        Assert.Null(DropResolver.Resolve(ParentsOf(byId), byId, "a", "d", 0.1));
+        Assert.Null(DropResolver.Resolve(ParentsOf(byId), byId, "a", "d", false, 0.1));
     }
 
     [Fact]
@@ -47,19 +47,19 @@ public sealed class DropResolverTests
             new TodoItem { Id = "y", Date = Today, Parent = "x" });
         var parents = ParentsOf(byId);
 
-        Assert.Equal(DropKind.Child, DropResolver.Resolve(parents, byId, "q", "p", 0.5)?.Kind);
+        Assert.Equal(DropKind.Child, DropResolver.Resolve(parents, byId, "q", "p", true, 0.5)?.Kind);
         // p 的子树已 2 层，再收 q 为 p 的子不超限？p(x(y))：x depth1, y depth2 → p 收 q 后 q depth1 ✓
-        Assert.Equal(DropKind.Child, DropResolver.Resolve(parents, byId, "q", "x", 0.5)?.Kind);
+        Assert.Equal(DropKind.Child, DropResolver.Resolve(parents, byId, "q", "x", true, 0.5)?.Kind);
         // 成环：p 拖到自己的后代 x 上（中间区）
-        Assert.Null(DropResolver.Resolve(parents, byId, "p", "x", 0.5));
+        Assert.Null(DropResolver.Resolve(parents, byId, "p", "x", true, 0.5));
         // 自拖到自身
-        Assert.Null(DropResolver.Resolve(parents, byId, "p", "p", 0.5));
+        Assert.Null(DropResolver.Resolve(parents, byId, "p", "p", true, 0.5));
         // 超深：构造 3 层链 root(p(x(y)))，把 y 挂到最深处再拖 x 到 y —— y 收 x 会到 4 层
         var deep = MakeItems(
             new TodoItem { Id = "l0", Date = Today },
             new TodoItem { Id = "l1", Date = Today, Parent = "l0" },
             new TodoItem { Id = "l2", Date = Today, Parent = "l1" });
-        Assert.Null(DropResolver.Resolve(ParentsOf(deep), deep, "l0", "l2", 0.5));
+        Assert.Null(DropResolver.Resolve(ParentsOf(deep), deep, "l0", "l2", true, 0.5));
     }
 
     [Fact]
@@ -67,9 +67,9 @@ public sealed class DropResolverTests
     {
         var byId = MakeItems(new TodoItem { Id = "a", Date = Today });
         var parents = ParentsOf(byId);
-        Assert.Null(DropResolver.Resolve(parents, byId, "a", "a", 0.1));
-        Assert.Null(DropResolver.Resolve(parents, byId, "a", "a", 0.5));
-        Assert.Null(DropResolver.Resolve(parents, byId, "a", "a", 0.9));
+        Assert.Null(DropResolver.Resolve(parents, byId, "a", "a", false, 0.1));
+        Assert.Null(DropResolver.Resolve(parents, byId, "a", "a", true, 0.5));
+        Assert.Null(DropResolver.Resolve(parents, byId, "a", "a", false, 0.9));
     }
 }
 
@@ -210,8 +210,8 @@ public sealed class TreeOpsTests : IDisposable
     public void DropResolver_ViaVm_RejectsCrossDateSibling()
     {
         var vm = NewVm(T("a", date: "2026-10-23"), T("b", date: "2026-10-01"));
-        Assert.Null(vm.ResolveDrop("a", "b", 0.1));      // 顶层跨日期兄弟插入拒绝
-        Assert.NotNull(vm.ResolveDrop("a", "b", 0.5));   // 中间区：b 收 a 为子，合法
+        Assert.Null(vm.ResolveDrop("a", "b", false, 0.1));      // 顶层跨日期兄弟插入拒绝
+        Assert.NotNull(vm.ResolveDrop("a", "b", true, 0.5));   // 中间区：b 收 a 为子，合法
     }
 
     private static Dictionary<string, TodoItem> vm_DebugTodos(MainViewModel vm)
