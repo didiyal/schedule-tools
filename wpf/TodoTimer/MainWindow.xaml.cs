@@ -92,7 +92,7 @@ public partial class MainWindow : Window
     }
 
     private void List_PreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
-        => EndDrag(apply: _pendingDrop is not null);
+        => EndDrag(apply: _pendingDrop is not null || _pendingToday);
 
     protected override void OnPreviewKeyDown(KeyEventArgs e)
     {
@@ -131,7 +131,7 @@ public partial class MainWindow : Window
     private void UpdateDragPoint(Point pt)
     {
         var (row, yRatio, rect) = RowFromPoint(pt);
-        if (row is null || row.IsHeader || row.IsPlaceholder || row.IsTodaySlot) return;   // 槽/组头/空白: 保持当前状态
+        if (row is null || row.IsHeader || row.IsPlaceholder) return;   // 槽/组头/空白: 保持当前状态
         // 横轴分模式(Notion 式)+迟滞: 内容区左侧=同级, 偏右=子级。
         // 独立两轴取代行高三分区, 根治同级/子级来回抖动
         var relX = pt.X - rect.X;
