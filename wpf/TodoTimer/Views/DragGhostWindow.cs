@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using System.Windows;
+using System.Windows.Interop;
 using System.Windows.Controls;
 using System.Windows.Media;
 
@@ -29,6 +30,30 @@ public sealed class DragGhostWindow : Window
         VerticalAlignment = VerticalAlignment.Center,
         Visibility = Visibility.Collapsed,
     };
+
+    private const int GWL_EXSTYLE = -20;
+    private const int WS_EX_LAYERED = 0x00080000;
+    private const int WS_EX_TRANSPARENT = 0x00000020;
+    private const int WS_EX_NOACTIVATE = 0x08000000;
+
+    [DllImport("user32.dll")]
+    private static extern int GetWindowLong(IntPtr hwnd, int index);
+
+    [DllImport("user32.dll")]
+    private static extern int SetWindowLong(IntPtr hwnd, int index, int newStyle);
+
+    protected override void OnSourceInitialized(EventArgs e)
+    {
+        base.OnSourceInitialized(e);
+        // Win32 级鼠标穿透：WS_EX_TRANSPARENT|WS_EX_LAYERED。
+        // 影子 Topmost 跟随光标, 不穿透会抢走 OLE 拖拽的落点目标( DragOver/Drop 全丢)
+        if (PresentationSource.FromVisual(this) is HwndSource src)
+        {
+            var style = GetWindowLong(src.Handle, GWL_EXSTYLE);
+            SetWindowLong(src.Handle, GWL_EXSTYLE,
+                style | WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE);
+        }
+    }
 
     public DragGhostWindow()
     {

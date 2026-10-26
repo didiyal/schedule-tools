@@ -60,7 +60,8 @@ public partial class MainWindow : Window
     {
         _downPt = e.GetPosition(List);
         var row = RowFromPoint(_downPt).Row;
-        _downRowId = row is { IsHeader: false } ? row.Todo.Id : null;
+        _downRowId = row is { IsHeader: false, IsPlaceholder: false } ? row.Todo.Id : null;
+        if (_downRowId is not null) _vm.ClearDropPreview();   // 清上一轮未落子的残留槽
         _downOnButton = WalkToButton(e.OriginalSource as DependencyObject);
     }
 
@@ -68,7 +69,7 @@ public partial class MainWindow : Window
     {
         if (e.LeftButton != MouseButtonState.Pressed || _downRowId is null || _dragId is not null)
             return;
-        if (_downOnButton) return;
+        if (_downOnButton)return;
         var pt = e.GetPosition(List);
         if (Math.Abs(pt.X - _downPt.X) < 10 && Math.Abs(pt.Y - _downPt.Y) < 10) return;
         _dragId = _downRowId;
@@ -89,12 +90,12 @@ public partial class MainWindow : Window
         var (row, yRatio, rect) = RowFromPoint(pt);
         // 空白区/组头/占位槽上：保持当前让位状态。
         // 占位槽是空 Todo, 若当目标解析必然失败并清掉预览 => 槽位闪烁、永远推不开
-        if (row is null || row.IsHeader || row.IsPlaceholder) return;
+        if (row is null || row.IsHeader || row.IsPlaceholder)
+return;
 
         var action = _vm.ResolveDrop(_dragId, row.Todo.Id, yRatio);
         _pendingDrop = action;
-        if (action is null) { Adorner()?.Clear(); _vm.ClearDropPreview(); return; }
-        // push 模式: 空白槽位即指示器(其他卡片推开让位), 不再画线
+        // push 模式: 有效=浅蓝让位槽, 无效=红色虚线槽(反馈不能是零)
         _vm.ShowDropPreview(_dragId, action);
 
         var indent = row.Depth * 28;
@@ -142,9 +143,13 @@ public partial class MainWindow : Window
 
     private void List_DragLeave(object sender, DragEventArgs e)
     {
-        _pendingDrop = null;
-        Adorner()?.Clear();
-        _vm.ClearDropPreview();
+        // DragLeave 会从子元素冒泡：自家让位重排造成光标下元素切换也会触发"假离开"，
+        // 一清预览就死循环（重排→假离开→清除→再重排）。只有光标真正离开列表才清。
+        var pt = e.GetPosition(List);
+        if (pt.X >= 0 && pt.Y >= 0 && pt.X <= List.ActualWidth && pt.Y <= List.ActualHeight)
+        {
+            return;
+        }
     }
 
     private void List_Drop(object sender, DragEventArgs e)
