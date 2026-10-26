@@ -44,8 +44,9 @@
 - [x] M1 每日一棵树 + 完成态 + 筛选 + 搜索
 - [x] M2 树操作全套 + 拖拽三区(bug 修复) + 删整枝撤销 + 归档
 - [x] M3 计时面板 + 托盘 + 自启 + 单实例 + 提醒
-- [ ] M4 CLI + IPC（契约与 v1.2 完全兼容）
-- [ ] M5 self-contained 发布 + Inno Setup + 文档同步
+- [x] M4 CLI headless 全命令 + IPC(58372) 写后通知刷新（读写契约与 v1.2 等价）
+- [x] 清理: 删除 workspace/ Python 1.2 代码与多余产物; README 重写; 版本命名 1.4（标题「待办计时器 1.4」, 暂不发布）
+- [ ] M5 self-contained 发布 + Inno Setup(installer/ 仍指向旧版待更新) + FlaUI 真实路径验收 —— **暂不发布**
 
 ## 候选（后续考虑，未排期）
 

@@ -101,12 +101,18 @@ public static class CliRunner
         return file;
     }
 
-    private static void GuardWrite()
+    /// <summary>写命令落盘后调用：GUI 在线则通知其重载数据（IPC），不可达则提示。</summary>
+    private static void NotifyGui()
     {
         if (!_guiOnline) return;
-        Err("拒绝写: 计时器 GUI 正在运行（直接写会被其覆盖）。请先退出 GUI，或等待 IPC 转发可用。");
-        Environment.ExitCode = 1;
-        throw new InvalidOperationException("gui-online");
+        try
+        {
+            IpcServer.NotifyReload();
+        }
+        catch (InvalidOperationException)
+        {
+            Err("警告: 改动已写入文件, 但 GUI 未响应刷新(可能已退出)。若界面未更新请重开 GUI。");
+        }
     }
 
     private static Dictionary<string, TodoItem> Index(TodoFile f)
@@ -179,7 +185,6 @@ public static class CliRunner
 
     private static int CmdAdd(List<string> pos, Dictionary<string, string> values, HashSet<string> flags)
     {
-        GuardWrite();
         var text = string.Join(' ', pos);
         if (string.IsNullOrWhiteSpace(text))
         {
@@ -206,6 +211,7 @@ public static class CliRunner
         };
         f.Todos.Add(t);
         Save(f);
+        NotifyGui();
         Out(_json
             ? JsonSerializer.Serialize(new { id = t.Id, parent = t.Parent, date = t.Date }, JsonOpts)
             : $"已添加 #{t.Id} {t.Text}");
@@ -214,7 +220,6 @@ public static class CliRunner
 
     private static int CmdToggleDone(List<string> pos, bool done)
     {
-        GuardWrite();
         var f = Load();
         var byId = Index(f);
         var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
@@ -236,14 +241,13 @@ public static class CliRunner
             t.Completed = done;
             n++;
         }
-        if (n > 0) Save(f);
+        if (n > 0) { Save(f); NotifyGui(); }
         Out(done ? $"已完成 {n} 项" : $"已取消完成 {n} 项");
         return n == 0 ? 1 : 0;
     }
 
     private static int CmdDelete(List<string> pos)
     {
-        GuardWrite();
         var f = Load();
         var byId = Index(f);
         var n = 0;
@@ -255,14 +259,13 @@ public static class CliRunner
             foreach (var t in branch) { f.Todos.Remove(byId[t]); byId.Remove(t); }
             n += branch.Count;
         }
-        if (n > 0) Save(f);
+        if (n > 0) { Save(f); NotifyGui(); }
         Out($"已删除 {n} 项（连同子任务）");
         return 0;
     }
 
     private static int CmdStartPause(List<string> pos, bool start)
     {
-        GuardWrite();
         var f = Load();
         var byId = Index(f);
         var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
@@ -287,53 +290,52 @@ public static class CliRunner
             }
             n++;
         }
-        if (n > 0) Save(f);
+        if (n > 0) { Save(f); NotifyGui(); }
         Out($"{(start ? "启动" : "暂停")} {n} 项");
         return 0;
     }
 
     private static int CmdMove(List<string> pos)
     {
-        GuardWrite();
         if (pos.Count < 2) { Err("用法: cli move <id> <yyyy-mm-dd>"); return 2; }
         var f = Load();
         var byId = Index(f);
         if (!byId.TryGetValue(pos[0], out var t)) { Err($"id 不存在: #{pos[0]}"); return 1; }
         t.Date = pos[1];
         Save(f);
+        NotifyGui();
         Out($"#{t.Id} 已改期到 {t.Date}");
         return 0;
     }
 
     private static int CmdRename(List<string> pos)
     {
-        GuardWrite();
         if (pos.Count < 2) { Err("用法: cli rename <id> \"新文本\""); return 2; }
         var f = Load();
         var byId = Index(f);
         if (!byId.TryGetValue(pos[0], out var t)) { Err($"id 不存在: #{pos[0]}"); return 1; }
         t.Text = string.Join(' ', pos.Skip(1));
         Save(f);
+        NotifyGui();
         Out($"#{t.Id} 已改名");
         return 0;
     }
 
     private static int CmdStar(List<string> pos, HashSet<string> flags)
     {
-        GuardWrite();
         if (pos.Count < 1) { Err("用法: cli star <id> [--on|--off]"); return 2; }
         var f = Load();
         var byId = Index(f);
         if (!byId.TryGetValue(pos[0], out var t)) { Err($"id 不存在: #{pos[0]}"); return 1; }
         t.Starred = flags.Contains("off") ? false : flags.Contains("on") ? true : !t.Starred;
         Save(f);
+        NotifyGui();
         Out($"#{t.Id} 重点={(t.Starred ? "开" : "关")}");
         return 0;
     }
 
     private static int CmdReparent(List<string> pos, Dictionary<string, string> values, HashSet<string> flags)
     {
-        GuardWrite();
         if (pos.Count < 1) { Err("用法: cli reparent <id> [--parent 父id | --top]"); return 2; }
         var f = Load();
         var byId = Index(f);
@@ -348,6 +350,7 @@ public static class CliRunner
         t.Parent = newParent;
         t.Order = byId.Values.Select(x => x.Order).DefaultIfEmpty(0).Max() + 1;
         Save(f);
+        NotifyGui();
         Out($"#{id} 已移动到 {(newParent is null ? "顶层" : $"#{newParent} 下")}");
         return 0;
     }

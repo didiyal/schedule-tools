@@ -1,3 +1,5 @@
+⚠ 2026-10-26 迁移：实现已从 Python(workspace/) 迁至 C#/WPF(wpf/)，v1.4.0。本文件下述 Python 架构/命令仅作历史参考；当前权威=wpf/ 代码与 docs/product/v1.4/design.md。
+
 # CLAUDE.md
 
 ## 命令

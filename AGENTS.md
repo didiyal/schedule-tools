@@ -1,3 +1,5 @@
+⚠ 2026-10-26 迁移：实现已迁至 C#/WPF(wpf/)，workspace/ Python 代码已删除。CLI 接口改为 `TodoTimer.exe cli ...`（数据契约与下述一致）；本文其余内容仅历史参考。
+
 # AGENTS.md — 待办计时器 (scheduleTools/tools)
 
 Windows 桌面待办计时器：主窗口管理待办列表 + 悬浮计时面板 + 系统托盘。

@@ -12,6 +12,7 @@ namespace TodoTimer;
 public partial class App : Application
 {
     private Mutex? _mutex;
+    private Services.IpcServer? _ipc;
     private TaskbarIcon? _tray;
     private TimerPanelWindow? _panel;
     private DispatcherTimer? _reminderTick;
@@ -54,7 +55,7 @@ public partial class App : Application
         _mutex = new Mutex(initiallyOwned: true, @"Local\TodoTimer.WPF", out var isNew);
         if (!isNew && !smoke)
         {
-            var hwnd = FindWindowW(null, "待办计时器");
+            var hwnd = FindWindowW(null, "待办计时器 1.4");
             if (hwnd != IntPtr.Zero) SetForegroundWindow(hwnd);
             Shutdown(0);
             return;
@@ -71,6 +72,9 @@ public partial class App : Application
         MainWindow = main;
         main.Show();
         InitTray((MainViewModel)main.DataContext);
+        var vm = (MainViewModel)main.DataContext;
+        _ipc = new Services.IpcServer(() => vm.LoadFile());
+        _ipc.Start();
         if (e.Args.Any(a => a == "--panel")) TogglePanel();
     }
 
@@ -98,7 +102,7 @@ public partial class App : Application
 
         _tray = new TaskbarIcon
         {
-            ToolTipText = "待办计时器",
+            ToolTipText = "待办计时器 1.4",
             Icon = icon,
             ContextMenu = menu,
         };
@@ -146,6 +150,7 @@ public partial class App : Application
     public void RealExit()
     {
         Exiting = true;
+        _ipc?.Dispose();
         _reminderTick?.Stop();
         _panelRefreshTick?.Stop();
         _tray?.Dispose();
