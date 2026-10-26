@@ -21,6 +21,11 @@
                 </Setter.Value>
             </Setter>
         </Style>
+        <!-- 父任务卡投影两档：一级明显、二级柔和（叶子任务无投影） -->
+        <DropShadowEffect x:Key="ParentShadowL1" BlurRadius="12" ShadowDepth="2"
+                          Direction="270" Opacity="0.20"/>
+        <DropShadowEffect x:Key="ParentShadowL2" BlurRadius="6" ShadowDepth="1"
+                          Direction="270" Opacity="0.11"/>
     </Window.Resources>
     <DockPanel>
         <!-- 顶部：筛选 + 搜索 -->
@@ -179,6 +184,30 @@
                                             <Setter Property="BorderBrush" Value="#E8842C"/>
                                             <Setter Property="BorderThickness" Value="1"/>
                                         </DataTrigger>
+                                        <!-- 有子任务的父卡三档区分：一级淡蓝底+明显投影，二级更淡底+弱投影，
+                                             叶子任务纯白无影。须放在 Completed 之前，完成态绿底优先覆盖 -->
+                                        <MultiDataTrigger>
+                                            <MultiDataTrigger.Conditions>
+                                                <Condition Binding="{Binding Expandable}" Value="True"/>
+                                                <Condition Binding="{Binding Depth}" Value="0"/>
+                                                <Condition Binding="{Binding Todo.Completed}" Value="False"/>
+                                            </MultiDataTrigger.Conditions>
+                                            <Setter Property="Background" Value="#E7EFFB"/>
+                                            <Setter Property="BorderBrush" Value="#8FB4EA"/>
+                                            <Setter Property="BorderThickness" Value="3,1,1,1"/>
+                                            <Setter Property="Effect" Value="{StaticResource ParentShadowL1}"/>
+                                        </MultiDataTrigger>
+                                        <MultiDataTrigger>
+                                            <MultiDataTrigger.Conditions>
+                                                <Condition Binding="{Binding Expandable}" Value="True"/>
+                                                <Condition Binding="{Binding Depth}" Value="1"/>
+                                                <Condition Binding="{Binding Todo.Completed}" Value="False"/>
+                                            </MultiDataTrigger.Conditions>
+                                            <Setter Property="Background" Value="#F1F5FB"/>
+                                            <Setter Property="BorderBrush" Value="#CBD9EE"/>
+                                            <Setter Property="BorderThickness" Value="2,1,1,1"/>
+                                            <Setter Property="Effect" Value="{StaticResource ParentShadowL2}"/>
+                                        </MultiDataTrigger>
                                         <DataTrigger Binding="{Binding Todo.Completed}" Value="True">
                                             <Setter Property="Background" Value="#E8F7EE"/>
                                         </DataTrigger>
