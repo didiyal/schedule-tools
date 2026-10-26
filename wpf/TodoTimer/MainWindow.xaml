@@ -185,12 +185,12 @@
                                             <Setter Property="BorderThickness" Value="1"/>
                                         </DataTrigger>
                                         <!-- 有子任务的父卡三档区分：一级淡蓝底+明显投影，二级更淡底+弱投影，
-                                             叶子任务纯白无影。须放在 Completed 之前，完成态绿底优先覆盖 -->
+                                             叶子任务纯白无影。框线不因完成消失（完成只覆盖底色为绿）；
+                                             须放在 Completed 之前，完成的底色由完成态触发器覆盖 -->
                                         <MultiDataTrigger>
                                             <MultiDataTrigger.Conditions>
                                                 <Condition Binding="{Binding Expandable}" Value="True"/>
                                                 <Condition Binding="{Binding Depth}" Value="0"/>
-                                                <Condition Binding="{Binding Todo.Completed}" Value="False"/>
                                             </MultiDataTrigger.Conditions>
                                             <Setter Property="Background" Value="#E7EFFB"/>
                                             <Setter Property="BorderBrush" Value="#8FB4EA"/>
@@ -201,7 +201,6 @@
                                             <MultiDataTrigger.Conditions>
                                                 <Condition Binding="{Binding Expandable}" Value="True"/>
                                                 <Condition Binding="{Binding Depth}" Value="1"/>
-                                                <Condition Binding="{Binding Todo.Completed}" Value="False"/>
                                             </MultiDataTrigger.Conditions>
                                             <Setter Property="Background" Value="#F1F5FB"/>
                                             <Setter Property="BorderBrush" Value="#CBD9EE"/>
