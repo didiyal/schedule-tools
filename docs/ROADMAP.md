@@ -49,6 +49,17 @@
 - [x] 美学统一: 设计令牌字典 Themes/TodoTimer.xaml（飞书浅色体系）+ 主窗/面板/对话框/右键菜单/滚动条/复选框换肤 + Segoe Fluent 图标替换 emoji（2026-10-26）
 - [ ] M5 self-contained 发布 + Inno Setup(installer/ 仍指向旧版待更新) + FlaUI 真实路径验收 —— **暂不发布**
 
+## 规划（v1.5 · 服务端 + 手机 APP）
+
+> 2026-10-26 用户拍板：做手机 APP 控制任务内容，架构分离部署。
+> 服务端落阿里云深圳轻量 47.112.114.139（宝塔 Linux）。
+> 设计稿：[product/v1.5/design-server-app.md](product/v1.5/design-server-app.md)。
+
+- [ ] S0 服务器安全整改（公网裸奔的 MySQL/Redis/Nacos/MQTT 端口收紧）
+- [ ] S1 TodoSync Server（ASP.NET Core 8 + SQLite + 设备令牌 + 增量 API）
+- [ ] S2 桌面 v1.5 同步模块（本地优先、LWW 合并、updatedAt/墓碑）
+- [ ] S3 Flutter APP MVP（任务树/增删改/勾选/计时/今日视图）
+
 ## 候选（后续考虑，未排期）
 
 > 以下为方向性候选，不代表承诺，是否实现取决于实际需求。
