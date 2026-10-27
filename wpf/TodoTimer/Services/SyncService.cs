@@ -38,6 +38,7 @@ public sealed class SyncService : IDisposable
     private SyncState _state = new();
     private readonly object _gate = new();      // _state/_busy 串行化
     private bool _busy;
+    private bool _updateHintShown;
 
     /// <summary>合并落库后回调（VM：Rebuild+Save）。在 Poll 的调用线程触发。</summary>
     public event Action? Merged;
@@ -319,6 +320,16 @@ public sealed class SyncService : IDisposable
             using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
             var root = doc.RootElement;
             ver = root.GetProperty("version").GetInt64();
+            if (root.TryGetProperty("app", out var appEl))
+            {
+                var serverApp = appEl.GetString();
+                if (!string.IsNullOrEmpty(serverApp) && serverApp != Models.AppInfo.Version
+                    && !_updateHintShown)
+                {
+                    _updateHintShown = true;
+                    SetStatus($"服务器有新版本 {serverApp}，建议更新桌面端");
+                }
+            }
             var todos = getTodos();
             Log($"poll: since={since} serverVer={ver} todos={todos.Count}");
             var changed = false;

@@ -47,7 +47,7 @@
 - [x] M4 CLI headless 全命令 + IPC(58372) 写后通知刷新（读写契约与 v1.2 等价）
 - [x] 清理: 删除 workspace/ Python 1.2 代码与多余产物; README 重写; 版本命名 1.4（标题「待办计时器 1.4」, 暂不发布）
 - [x] 美学统一: 设计令牌字典 Themes/TodoTimer.xaml（飞书浅色体系）+ 主窗/面板/对话框/右键菜单/滚动条/复选框换肤 + Segoe Fluent 图标替换 emoji（2026-10-26）
-- [ ] M5 self-contained 发布 + Inno Setup(installer/ 仍指向旧版待更新) + FlaUI 真实路径验收 —— **暂不发布**
+- [x] M5 self-contained 发布 + Inno Setup v1.4.0 重写（按用户装 LocalAppData\Programs、data 继承、旧 EXE 清理、运行实例自动关闭、更新检查提示）——**安装包已产出：TodoTimer_Setup_1.4.0.exe（暂不对外发布）**；FlaUI 真实路径验收仍待做
 
 ## 规划（v1.5 · 服务端 + 手机 APP）
 

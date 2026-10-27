@@ -64,7 +64,7 @@ app.MapGet("/healthz", () =>
     lock (gate)
     {
         using var db = Store.OpenDb(dbPath);
-        return Results.Json(new { ok = true, version = Store.GetVersion(db) });
+        return Results.Json(new { ok = true, version = Store.GetVersion(db), app = Util.AppVersion });
     }
 });
 
@@ -131,7 +131,7 @@ app.MapGet("/api/changes", (HttpContext ctx, long since) =>
             .Select(r => new ItemDto(r.Id, r.UpdatedAt, r.DeletedAt,
                 JsonDocument.Parse(r.Json).RootElement.Clone()))
             .ToList();
-        return Results.Json(new { version = Store.GetVersion(db), items });
+        return Results.Json(new { version = Store.GetVersion(db), items, app = Util.AppVersion });
     }
 });
 

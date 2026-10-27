@@ -62,7 +62,7 @@ public partial class App : Application
         _mutex = new Mutex(initiallyOwned: true, @"Local\TodoTimer.WPF", out var isNew);
         if (!isNew && !smoke)
         {
-            var hwnd = FindWindowW(null, "待办计时器 1.4");
+            var hwnd = FindWindowW(null, Models.AppInfo.WindowTitle);
             if (hwnd != IntPtr.Zero) SetForegroundWindow(hwnd);
             Shutdown(0);
             return;
@@ -82,7 +82,7 @@ public partial class App : Application
             catch { /* 日志失败静默 */ }
         };
 
-        var main = new MainWindow { Title = "待办计时器 1.4" };   // 须与 FindWindowW 匹配
+        var main = new MainWindow { Title = Models.AppInfo.WindowTitle };   // 须与 FindWindowW 匹配
         MainWindow = main;
         main.Show();
         var vm = (MainViewModel)main.DataContext;
