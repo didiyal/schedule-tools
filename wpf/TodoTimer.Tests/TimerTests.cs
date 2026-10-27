@@ -33,18 +33,22 @@ public sealed class TimerTests : IDisposable
     }
 
     [Fact]
-    public void ToggleComplete_MovesToToday_AndStopsClock()
+    public void ToggleComplete_KeepsDate_BackfillFriendly_AndStopsClock()
     {
+        // 补卡语义（2026-10-27 用户拍板）：完成归入任务当前所属日期，不强制改期——
+        // 昨天忘勾的任务今天补勾，历史留在昨天。（旧日期任务会被 LoadFile 里的
+        // 每日顺延搬到今天，那是顺延的职责；本测试用今天的任务验证完成不改期）
+        var today = TodoItem.TodayStr();
         var vm = NewVm(new TodoItem
         {
-            Id = "t", Text = "跨日任务", Date = "2026-10-01",
+            Id = "t", Text = "跨日任务", Date = today,
             Elapsed = 10, Running = true, LastStartedAt = Now - 5,
         });
         _vmToggle(vm, "t");
         var row = vm.Rows.First(r => !r.IsHeader && r.Todo.Id == "t");
         Assert.True(row.Todo.Completed);
         Assert.False(row.Todo.Running);
-        Assert.Equal(TodoItem.TodayStr(), row.Todo.Date);   // 完成归到当天
+        Assert.Equal(today, row.Todo.Date);                    // 日期保持原所属
         Assert.True(row.Todo.Elapsed >= 15);                // 停表固化
     }
 

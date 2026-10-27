@@ -236,7 +236,7 @@ public static class CliRunner
                     t.Running = false;
                     t.LastStartedAt = null;
                 }
-                t.Date = TodoItem.TodayStr();   // 完成归到当天
+                // 补卡语义（与 GUI 一致）：完成归入任务当前所属日期，不强制改期到今天
             }
             t.Completed = done;
             if (done)

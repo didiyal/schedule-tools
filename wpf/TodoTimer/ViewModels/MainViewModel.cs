@@ -352,10 +352,11 @@ public partial class MainViewModel : ObservableObject
         }
         else
         {
-            // set_complete 语义：停表 + 完成归到当天
+            // set_complete 语义：停表 + 完成归入任务当前所属日期（不再强制改期到今天——
+            // 补卡语义 2026-10-27 用户拍板：昨天忘勾的任务今天补勾，历史留在昨天；
+            // 顺延已搬到今天的任务勾选后就留在今天，日期由顺延/拖拽/新建决定）
             if (t.Running) { t.Elapsed = LiveElapsed(t); t.Running = false; t.LastStartedAt = null; }
             t.Completed = true;
-            t.Date = TodoItem.TodayStr();
             CompleteRolledFrom(t);   // 结转承接根完成 → 旧日结转根同步翻篇（用户拍板 2026-10-27）
         }
         Rebuild();
