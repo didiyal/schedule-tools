@@ -45,9 +45,9 @@
 - [x] M2 树操作全套 + 拖拽三区(bug 修复) + 删整枝撤销 + 归档
 - [x] M3 计时面板 + 托盘 + 自启 + 单实例 + 提醒
 - [x] M4 CLI headless 全命令 + IPC(58372) 写后通知刷新（读写契约与 v1.2 等价）
-- [x] 清理: 删除 workspace/ Python 1.2 代码与多余产物; README 重写; 版本命名 1.4（标题「待办计时器 1.4」, 暂不发布）
+- [x] 清理: 删除 workspace/ Python 1.2 代码与多余产物; README 重写; 版本命名 1.4（标题「待办计时器 1.4」）
 - [x] 美学统一: 设计令牌字典 Themes/TodoTimer.xaml（飞书浅色体系）+ 主窗/面板/对话框/右键菜单/滚动条/复选框换肤 + Segoe Fluent 图标替换 emoji（2026-10-26）
-- [x] M5 self-contained 发布 + Inno Setup v1.4.0 重写（按用户装 LocalAppData\Programs、data 继承、旧 EXE 清理、运行实例自动关闭、更新检查提示）——**安装包已产出：TodoTimer_Setup_1.4.0.exe（暂不对外发布）**；FlaUI 真实路径验收仍待做
+- [x] M5 self-contained 发布 + Inno Setup v1.4.0 重写（按用户装 LocalAppData\Programs、data 继承、旧 EXE 清理、运行实例自动关闭、更新检查提示）——**安装包已产出并发布：GitHub Release v1.4.0 附 TodoTimer_Setup_1.4.0.exe（2026-10-27）**；FlaUI 真实路径验收仍待做
 
 ## 规划（v1.5 · 服务端 + 手机 APP）
 
@@ -57,8 +57,11 @@
 
 - [ ] S0 服务器安全整改（公网裸奔的 MySQL/Redis/Nacos/MQTT 端口收紧）—— 用户暂缓，上线前至少确认数据库密码
 - [x] S1 TodoSync Server 已上线 https://47.112.114.139（2026-10-26 systemd+Nginx443 自签反代，公网配对/推/拉验收通过；运维手册 server/TodoSync/README.md）
-- [x] S2 桌面同步模块（SyncService+SyncOps：存盘推/30s 心跳拉/墓碑重试/证书钉扎设置；真服务器四链路验收，54 测试绿）
+- [x] S2 桌面同步模块（SyncService+SyncOps：存盘推/30s 心跳拉/墓碑重试/证书钉扎设置；真服务器四链路验收）
 - [x] S3 Flutter APP MVP（树浏览/增删改/勾选/计时/今日视图；钉证书+30s 轮询；debug/release APK 构建脚本化；模拟器真服务器验收通过）
+- [x] S4 每日顺延（跨日自动结转，「已结转」快照）+ 补卡语义（完成不改期）+ 顺延两轮用户验收修订（未完成叶全收编/结转链翻篇）
+- [x] S5 服务端空间隔离（多用户）：todos/devices space_id、配对码绑空间、/api/admin/spaces；存量归 default；共享清单留口子
+- [x] 发布上线（2026-10-27）：GitHub Release v1.4.0 + 安装包上线；文档同步
 
 ## 候选（后续考虑，未排期）
 
@@ -68,4 +71,6 @@
 - [ ] 统计：按日 / 周 / 任务汇总耗时。
 - [ ] 番茄钟模式：固定工作 / 休息周期与自动切换。
 - [ ] 主题与深色模式。
-- [ ] 跨设备数据同步。
+- [ ] 共享清单（一空间多用户共管，space_members）。
+- [ ] FlaUI 真实路径自动化验收。
+- [ ] 手机 APP 更新检查提示；APP 端「新建空间+生成配对码」UI（服务端 API 已就绪）。
