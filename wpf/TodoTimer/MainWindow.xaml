@@ -44,6 +44,15 @@
                         <TextBlock Text="面板" Margin="5,0,0,0" VerticalAlignment="Center"/>
                     </StackPanel>
                 </Button>
+                <!-- 云同步入口常驻（未配置时也要能进设置——之前的隐形入口是设计 bug） -->
+                <Button DockPanel.Dock="Right" Style="{StaticResource BtnSecondary}"
+                        Padding="9,3" Margin="0,0,6,0" Click="SyncBtn_Click">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="&#xE895;" FontFamily="{StaticResource IconFont}" FontSize="13"
+                                   Foreground="{StaticResource Brush.Accent}" VerticalAlignment="Center"/>
+                        <TextBlock Text="同步" Margin="5,0,0,0" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Button>
                 <StackPanel Orientation="Horizontal">
                     <TextBlock Text="{Binding StatText}" Foreground="{StaticResource Brush.TextTertiary}" FontSize="11"/>
                     <!-- 同步状态：点击打开云同步设置 -->

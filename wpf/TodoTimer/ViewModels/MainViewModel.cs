@@ -46,7 +46,8 @@ public partial class MainViewModel : ObservableObject
         Sync.InitFingerprints(_file.Todos);
         Sync.StatusChanged += s => System.Windows.Application.Current?.Dispatcher
             .BeginInvoke(() => SyncStatus = s);
-        SyncStatus = Sync.Status;
+        SyncStatus = Sync.Status.Length > 0 ? Sync.Status
+            : (Sync.SnapshotState().Enabled ? "" : "云同步未开启，点此配置");
     }
 
     [ObservableProperty] private string syncStatus = "";
