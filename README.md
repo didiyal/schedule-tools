@@ -1,11 +1,14 @@
-# 待办计时器 1.4
+# 待办计时器
 
-Windows 桌面待办计时器：主窗口管理每日任务树 + 悬浮计时面板 + 系统托盘 + Agent CLI。
+任务树 + 计时器：Windows 桌面端（WPF）+ 安卓端（Flutter），经自建服务端三端同步。
+**单用户、本地优先**——桌面端离线一切可用，联网后自动双向同步。
 
-**v1.4 起由 Python/customtkinter 迁移到 C#/.NET 8 + WPF**（动机：渲染性能），
-Python 1.2 线已删除（历史见 git 与 `docs/`）。
+- **v1.4**（2026-10-26）：Python/customtkinter → C#/.NET 8 + WPF 全量重写（动机：渲染性能）
+- **v1.5**（2026-10-27）：架构分离——新增 TodoSync 服务端 + 桌面同步模块 + 安卓 APP
 
 ## 功能
+
+### 桌面端（wpf/，主入口）
 
 - **每日一棵树**：按日期倒序分组，任务可挂子任务（3 层），折叠/子进度/跨日角标
 - **完成态**：绿底灰字删除线，完成不移动卡片；「清除已完成」归档到 archive.json
@@ -14,15 +17,33 @@ Python 1.2 线已删除（历史见 git 与 `docs/`）。
   偏右（成为子级）；影子跟随显示意图；**跨日期拖放=改期**；今日空槽拖入=改到今天
 - **计时面板**：置顶悬浮，▶/⏸/✓/✕ 行内操作，实时时长
 - **父子规则**：首次建子任务时父任务时长/面板身份自动迁移给同名子任务；
-  含子任务的任务时长=子任务递归汇总，不可单独计时/入面板；父任务卡有蓝色标识
-- **滚动条**：列表滚动条区域不再误触发拖拽
+  含子任务的任务时长=子任务递归汇总，不可单独计时/入面板；父任务卡三档视觉区分
+- **云同步**（v1.5）：配置服务器+令牌后自动推拉（存盘即推、30s 心跳拉），
+  LWW 合并、删除墓碑、失败重试；未配置零联网，本地功能不受影响
 - **托盘**：关闭=常驻，托盘菜单显示/面板/自启/退出；目标时长提醒（气泡+提示音）
 - **CLI**：`TodoTimer.exe cli <命令>` 供 Agent/脚本读写（见下）
 
-## 使用
+### 安卓端（app/，v1.5 新增）
+
+任务树浏览（日组+3 层）、勾选、新建任务/子任务、删除（全端同步删除）、
+开始/暂停计时、只看今日、下拉刷新；30s 轮询+回前台即同步；TLS 自签证书钉扎。
+构建：`cd app && bash build_apk.sh release`（详见 `app/README.md`）。
+
+### 服务端（server/TodoSync/，v1.5 新增）
+
+ASP.NET Core 8 + SQLite 同步枢纽：设备令牌鉴权、配对码、增量 API（`/api/changes?since=N`）、
+墓碑。已部署（systemd + Nginx 443 自签反代），运维手册见 `server/TodoSync/README.md`。
+
+## 三端同步语义
+
+- 按条目 `updated_at` 秒级 **last-writer-wins**；删除走墓碑（防删后复活）
+- 桌面端=权威端（管理员令牌）；手机经配对码/令牌接入
+- 冲突概率极低（单用户）；种子机制保证新设备首连即拉到全量
+
+## 使用（桌面端）
 
 - 安装包暂未发布；开发运行：`cd wpf && dotnet run`
-- 数据在 **EXE 同目录 `data/`**（todos.json + archive.json，便携）
+- 数据在 **EXE 同目录 `data/`**（todos.json + archive.json + syncstate.json，便携）
 - 快捷键：Tab/Shift+Tab 层级、Delete 删整枝、Ctrl+Z 整枝恢复、Ctrl+Q 退出、双击加面板
 
 ## CLI（Agent 接口）
@@ -42,15 +63,18 @@ GUI 离线时直接读写文件。输出 UTF-8，`--json` 供解析。
 ## 构建
 
 ```bash
-cd wpf
-dotnet build TodoTimer.sln      # 需 .NET 8 SDK
-dotnet test  TodoTimer.sln      # 40 项测试
+cd wpf && dotnet build TodoTimer.sln && dotnet test TodoTimer.sln   # 桌面端，54 项测试
+cd app && bash build_apk.sh release                                 # 安卓端 APK
+cd server/TodoSync && dotnet publish -c Release -r linux-x64 ...    # 服务端（见其 README）
 ```
 
-目录：`wpf/TodoTimer/`（Models 纯函数+存储 / ViewModels / Views / Services）、
-`wpf/TodoTimer.Tests/`（xunit）。安装器（Inno Setup）与发布见 `installer/`（待更新）。
+目录：`wpf/TodoTimer/`（Models / ViewModels / Views / Services/Themes）、
+`wpf/TodoTimer.Tests/`（xunit）、`app/`（Flutter）、`server/TodoSync/`（同步枢纽）、
+`installer/`（Inno Setup，待 M5 更新）、`docs/`。
 
 ## 文档
 
 - 设计与变更：`docs/`（CHANGELOG、product/<版本>/、ROADMAP.md）
+- v1.5 架构决策：`docs/product/v1.5/design-server-app.md`
+- 部署运维：`server/TodoSync/README.md`；安卓构建：`app/README.md`
 - 历史版本（v1.0–v1.2，Python 实现）见 docs 与 git 历史
