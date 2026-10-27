@@ -12,7 +12,6 @@ void main() {
   runApp(const TodoTimerApp());
 }
 
-const _pin = 'BC:68:BF:4F:6F:1E:9E:0A:63:61:B2:93:57:8C:39:DC:7D:E6:C4:C6:CF:9B:65:0A:4B:E9:14:1A:04:3E:03:62';
 const _brand = Color(0xFF3370FF);
 const _green = Color(0xFF2BA245);
 
@@ -70,7 +69,7 @@ class _RootPageState extends State<RootPage> with WidgetsBindingObserver {
   static void _log(String m) => debugPrint('[TodoTimer] $m');
 
   Future<void> _connect(String server, String token, {required bool persist}) async {
-    final api = TodoApi(server: server, token: token, pinnedSha256: _pin);
+    final api = TodoApi(server: server, token: token, pinnedSha256: TodoApi.defaultPinnedSha256);
     try {
       _log('connecting $server');
       final v = await api.healthVersion();

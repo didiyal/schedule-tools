@@ -44,12 +44,6 @@ public sealed class SyncService : IDisposable
     public event Action<string>? StatusChanged;
     public string Status { get; private set; } = "";
 
-    private static readonly JsonSerializerOptions StateOpts = new()
-    {
-        WriteIndented = true,
-        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-    };
-
     public SyncService(string dataDir)
     {
         _statePath = Path.Combine(dataDir, "syncstate.json");
@@ -170,7 +164,7 @@ public sealed class SyncService : IDisposable
         try
         {
             var tmp = _statePath + ".tmp";
-            File.WriteAllText(tmp, JsonSerializer.Serialize(_state, StateOpts), new UTF8Encoding(false));
+            File.WriteAllText(tmp, JsonSerializer.Serialize(_state, TodoStore.WriteOpts), new UTF8Encoding(false));
             File.Move(tmp, _statePath, overwrite: true);
         }
         catch { /* 状态落盘失败不阻断同步 */ }
@@ -373,12 +367,9 @@ public sealed class SyncService : IDisposable
     private static string TrimErr(Exception ex)
         => ex.Message.Length > 60 ? ex.Message[..60] : ex.Message;
 
-    /// <summary>诊断日志（build_tmp/sync.log，仅开发构建排障用；失败静默）。</summary>
-    public static void Log(string msg)
-    {
-        try { File.AppendAllText(@"D:\桌面\scheduleTools\tools\build_tmp\sync.log",
-            $"{DateTime.Now:HH:mm:ss} {msg}\r\n"); } catch { }
-    }
+    /// <summary>诊断日志汇——产品库不耦合机器路径；组合根（App）按需接线，未接线=静默。</summary>
+    public static Action<string>? LogSink;
+    private static void Log(string msg) => LogSink?.Invoke($"{DateTime.Now:HH:mm:ss} {msg}");
 
     public void Dispose() => _http.Dispose();
 }

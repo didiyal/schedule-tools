@@ -6,16 +6,12 @@
 //   · 条目正文以 JSON 原文存储（不解析字段），契约演进零迁移。
 //   · 全局递增 version（meta 表），每次接受变更批次 +1；拉增量 = WHERE version > since。
 //   · 部署形态：Kestrel 只听 127.0.0.1:5000，TLS 由宿主 Nginx(443) 终结（自签+客户端钉证书）。
-using System.Security.Cryptography;
-using System.Text;
+//   · 数据访问在 Store.cs，通用工具在 Util.cs——本文件只有装配与 HTTP 路由。
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
+using TodoSync;
 
-// ── 启动参数与数据目录 ──
-string? dataDirArg = null;
-for (var i = 0; i < args.Length - 1; i++)
-    if (args[i] == "--data-dir") dataDirArg = args[i + 1];
-var dataDir = dataDirArg
+var dataDir = ReadArg(args, "--data-dir")
     ?? Environment.GetEnvironmentVariable("TODOSYNC_DATA")
     ?? Path.Combine(AppContext.BaseDirectory, "data");
 Directory.CreateDirectory(dataDir);
@@ -24,35 +20,14 @@ var adminTokenPath = Path.Combine(dataDir, "admin.token");
 
 if (!File.Exists(adminTokenPath))
 {
-    File.WriteAllText(adminTokenPath, NewToken() + Environment.NewLine);
+    File.WriteAllText(adminTokenPath, Util.NewToken() + Environment.NewLine);
     Console.WriteLine($"[TodoSync] 管理员令牌已生成: {adminTokenPath}（桌面端设置里粘贴一次）");
 }
-var adminHash = Sha256Hex(File.ReadAllText(adminTokenPath).Trim());
+var adminHash = Util.Sha256Hex(File.ReadAllText(adminTokenPath).Trim());
 
-// ── SQLite 初始化 ──
-using (var db = OpenDb(dbPath))
-{
-    Exec(db, "PRAGMA journal_mode=WAL");
-    Exec(db, """
-        CREATE TABLE IF NOT EXISTS todos(
-            id TEXT PRIMARY KEY,
-            json TEXT NOT NULL,
-            updated_at INTEGER NOT NULL,
-            deleted_at INTEGER,
-            version INTEGER NOT NULL DEFAULT 0)
-        """);
-    Exec(db, "CREATE INDEX IF NOT EXISTS ix_todos_version ON todos(version)");
-    Exec(db, """
-        CREATE TABLE IF NOT EXISTS devices(
-            token_hash TEXT PRIMARY KEY,
-            name TEXT NOT NULL DEFAULT '',
-            paired_at INTEGER NOT NULL,
-            last_seen INTEGER NOT NULL DEFAULT 0)
-        """);
-    Exec(db, "CREATE TABLE IF NOT EXISTS meta(k TEXT PRIMARY KEY, v TEXT NOT NULL)");
-}
+using (var db = Store.OpenDb(dbPath)) Store.Init(db);
 
-var Gate = new object();   // 单用户低并发，全局写锁即可，SQLite WAL 只防意外
+var gate = new object();   // 单用户低并发，全局写锁即可，SQLite WAL 只防意外
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Logging.SetMinimumLevel(LogLevel.Warning);
@@ -65,19 +40,14 @@ static string? Bearer(HttpRequest req)
     return h.StartsWith("Bearer ", StringComparison.Ordinal) ? h["Bearer ".Length..].Trim() : null;
 }
 
-bool IsAdmin(string? token) => token is not null && FixedEq(Sha256Hex(token), adminHash);
+bool IsAdmin(string? token) => token is not null && Util.FixedEq(Util.Sha256Hex(token), adminHash);
 
 // 设备令牌命中则刷新 last_seen 并放行
 bool TouchDevice(string? token)
 {
     if (token is null || token.Length < 16) return false;
-    var hash = Sha256Hex(token);
-    using var db = OpenDb(dbPath);
-    using var cmd = db.CreateCommand();
-    cmd.CommandText = "UPDATE devices SET last_seen=@n WHERE token_hash=@h";
-    cmd.Parameters.AddWithValue("@n", Now());
-    cmd.Parameters.AddWithValue("@h", hash);
-    return cmd.ExecuteNonQuery() == 1;
+    using var db = Store.OpenDb(dbPath);
+    return Store.TouchDevice(db, Util.Sha256Hex(token), Util.Now());
 }
 
 IResult? Auth(HttpContext ctx)
@@ -91,26 +61,26 @@ IResult? Auth(HttpContext ctx)
 // ── 健康检查（免鉴权，无敏感信息）──
 app.MapGet("/healthz", () =>
 {
-    lock (Gate)
+    lock (gate)
     {
-        using var db = OpenDb(dbPath);
-        return Results.Json(new { ok = true, version = GetVersion(db) });
+        using var db = Store.OpenDb(dbPath);
+        return Results.Json(new { ok = true, version = Store.GetVersion(db) });
     }
 });
 
 // ── 配对：配对码（桌面端管理员生成，5 分钟单次有效）→ 设备令牌 ──
 app.MapPost("/api/pair", (PairReq req) =>
 {
-    lock (Gate)
+    lock (gate)
     {
-        using var db = OpenDb(dbPath);
-        var (code, exp) = GetPair(db);
-        if (code is null || Now() > exp || req.Code is null || !FixedEq(req.Code.Trim(), code))
+        using var db = Store.OpenDb(dbPath);
+        var (code, exp) = Store.GetPair(db);
+        if (code is null || Util.Now() > exp || req.Code is null
+            || !Util.FixedEq(req.Code.Trim(), code))
             return Results.Json(new { error = "invalid-or-expired-code" }, statusCode: 403);
-        var token = NewToken();
-        Exec(db, "INSERT OR REPLACE INTO devices(token_hash,name,paired_at,last_seen) VALUES(@h,@n,@p,@p)",
-            ("@h", Sha256Hex(token)), ("@n", req.Name ?? ""), ("@p", Now()));
-        Exec(db, "DELETE FROM meta WHERE k IN ('pair_code','pair_expiry')");
+        var token = Util.NewToken();
+        Store.InsertDevice(db, Util.Sha256Hex(token), req.Name ?? "", Util.Now());
+        Store.ClearPair(db);
         return Results.Json(new { token });
     }
 });
@@ -122,39 +92,30 @@ app.MapPost("/api/changes", (HttpContext ctx, ChangesReq? req) =>
     if (deny is not null) return deny;
     if (req?.Items is null || req.Items.Length == 0)
         return Results.Json(new { error = "empty-items" }, statusCode: 400);
-    lock (Gate)
+    lock (gate)
     {
-        using var db = OpenDb(dbPath);
+        using var db = Store.OpenDb(dbPath);
         using var tx = db.BeginTransaction();
-        var ver = GetVersion(db) + 1;
+        var ver = Store.GetVersion(db) + 1;
         var accepted = 0;
         foreach (var it in req.Items)
         {
             if (string.IsNullOrEmpty(it.Id)) continue;
-            // 墓碑（DeletedAt 非空）允许 json 缺失/非对象——删除只关心 id 与时间
-            if (it.DeletedAt is null && (it.Json.ValueKind != JsonValueKind.Object
-                || it.Json.TryGetProperty("id", out _) is false)) continue;
-            using (var q = db.CreateCommand())
-            {
-                q.CommandText = "SELECT updated_at FROM todos WHERE id=@id";
-                q.Parameters.AddWithValue("@id", it.Id);
-                var cur = q.ExecuteScalar();
-                if (cur is not null && Convert.ToInt64(cur) >= it.UpdatedAt) continue;   // LWW：旧的丢弃
-            }
-            Exec(db, """
-                INSERT INTO todos(id,json,updated_at,deleted_at,version) VALUES(@id,@j,@u,@d,@v)
-                ON CONFLICT(id) DO UPDATE SET
-                    json=CASE WHEN @d IS NULL THEN @j ELSE json END,
-                    updated_at=@u, deleted_at=@d, version=@v
-                """,
-                ("@id", it.Id), ("@j", it.Json.ValueKind == JsonValueKind.Object ? it.Json.GetRawText() : "{}"),
-                ("@u", it.UpdatedAt), ("@d", it.DeletedAt), ("@v", ver));
+            // 墓碑（deletedAt 非空）允许 json 缺失/非对象——删除只关心 id 与时间
+            if (it.DeletedAt is null && it.Json.ValueKind != JsonValueKind.Object) continue;
+            var cur = Store.TodoUpdatedAt(db, it.Id);
+            if (cur is not null && cur >= it.UpdatedAt) continue;   // LWW：旧的丢弃
+            Store.UpsertTodo(db, it.Id,
+                it.Json.ValueKind == JsonValueKind.Object ? it.Json.GetRawText() : "{}",
+                it.UpdatedAt, it.DeletedAt, ver);
             accepted++;
         }
         if (accepted > 0)
-            Exec(db, "INSERT INTO meta(k,v) VALUES('version',@v) ON CONFLICT(k) DO UPDATE SET v=@v", ("@v", ver));
-        tx.Commit();
-        return Results.Json(new { version = GetVersion(db), accepted });
+        {
+            Store.SetVersion(db, ver);
+            tx.Commit();
+        }
+        return Results.Json(new { version = Store.GetVersion(db), accepted });
     }
 });
 
@@ -163,21 +124,14 @@ app.MapGet("/api/changes", (HttpContext ctx, long since) =>
 {
     var deny = Auth(ctx);
     if (deny is not null) return deny;
-    lock (Gate)
+    lock (gate)
     {
-        using var db = OpenDb(dbPath);
-        var items = new List<object>();
-        using (var q = db.CreateCommand())
-        {
-            q.CommandText = "SELECT id,json,updated_at,deleted_at FROM todos WHERE version>@s ORDER BY version";
-            q.Parameters.AddWithValue("@s", since);
-            using var r = q.ExecuteReader();
-            while (r.Read())
-                items.Add(new ItemDto(r.GetString(0), r.GetInt64(2),
-                    r.IsDBNull(3) ? null : r.GetInt64(3),
-                    JsonDocument.Parse(r.GetString(1)).RootElement.Clone()));
-        }
-        return Results.Json(new { version = GetVersion(db), items });
+        using var db = Store.OpenDb(dbPath);
+        var items = Store.ChangesSince(db, since)
+            .Select(r => new ItemDto(r.Id, r.UpdatedAt, r.DeletedAt,
+                JsonDocument.Parse(r.Json).RootElement.Clone()))
+            .ToList();
+        return Results.Json(new { version = Store.GetVersion(db), items });
     }
 });
 
@@ -186,13 +140,12 @@ app.MapPost("/api/admin/paircode", (HttpContext ctx) =>
 {
     if (!IsAdmin(Bearer(ctx.Request)))
         return Results.Json(new { error = "unauthorized" }, statusCode: 401);
-    lock (Gate)
+    lock (gate)
     {
-        var code = RandomNumberGenerator.GetInt32(0, 1_000_000).ToString("D6");
-        var exp = Now() + 300;
-        using var db = OpenDb(dbPath);
-        Exec(db, "INSERT INTO meta(k,v) VALUES('pair_code',@c) ON CONFLICT(k) DO UPDATE SET v=@c", ("@c", code));
-        Exec(db, "INSERT INTO meta(k,v) VALUES('pair_expiry',@e) ON CONFLICT(k) DO UPDATE SET v=@e", ("@e", exp));
+        var code = Random.Shared.Next(0, 1_000_000).ToString("D6");
+        var exp = Util.Now() + 300;
+        using var db = Store.OpenDb(dbPath);
+        Store.SetPair(db, code, exp);
         return Results.Json(new { code, expiresAt = exp });
     }
 });
@@ -201,19 +154,13 @@ app.MapGet("/api/admin/devices", (HttpContext ctx) =>
 {
     if (!IsAdmin(Bearer(ctx.Request)))
         return Results.Json(new { error = "unauthorized" }, statusCode: 401);
-    lock (Gate)
+    lock (gate)
     {
-        using var db = OpenDb(dbPath);
-        var list = new List<DeviceDto>();
-        using (var q = db.CreateCommand())
-        {
-            q.CommandText = "SELECT token_hash,name,paired_at,last_seen FROM devices ORDER BY paired_at";
-            using var r = q.ExecuteReader();
-            while (r.Read())
-                list.Add(new DeviceDto(r.GetString(0)[..12] + "…", r.GetString(1),
-                    r.GetInt64(2), r.GetInt64(3)));
-        }
-        return Results.Json(new { devices = list });
+        using var db = Store.OpenDb(dbPath);
+        var devices = Store.Devices(db)
+            .Select(d => new DeviceDto(d.Hash[..12] + "…", d.Name, d.PairedAt, d.LastSeen))
+            .ToList();
+        return Results.Json(new { devices });
     }
 });
 
@@ -221,10 +168,10 @@ app.MapDelete("/api/admin/devices/{hash}", (HttpContext ctx, string hash) =>
 {
     if (!IsAdmin(Bearer(ctx.Request)))
         return Results.Json(new { error = "unauthorized" }, statusCode: 401);
-    lock (Gate)
+    lock (gate)
     {
-        using var db = OpenDb(dbPath);
-        Exec(db, "DELETE FROM devices WHERE token_hash=@h", ("@h", hash));
+        using var db = Store.OpenDb(dbPath);
+        Store.DeleteDevice(db, hash);
         return Results.Json(new { ok = true });
     }
 });
@@ -232,63 +179,13 @@ app.MapDelete("/api/admin/devices/{hash}", (HttpContext ctx, string hash) =>
 app.Run();
 return;
 
-// ── 本地函数 ──
-static SqliteConnection OpenDb(string path)
+// ── 启动参数 ──
+static string? ReadArg(string[] args, string name)
 {
-    var conn = new SqliteConnection(new SqliteConnectionStringBuilder
-    {
-        DataSource = path,
-        Mode = SqliteOpenMode.ReadWriteCreate,
-        Pooling = true,
-    }.ToString());
-    conn.Open();
-    return conn;
+    for (var i = 0; i < args.Length - 1; i++)
+        if (args[i] == name) return args[i + 1];
+    return null;
 }
-
-static void Exec(SqliteConnection db, string sql, params (string Name, object? Value)[] ps)
-{
-    using var cmd = db.CreateCommand();
-    cmd.CommandText = sql;
-    foreach (var (n, v) in ps) cmd.Parameters.AddWithValue(n, v ?? DBNull.Value);
-    cmd.ExecuteNonQuery();
-}
-
-static long GetVersion(SqliteConnection db)
-{
-    using var q = db.CreateCommand();
-    q.CommandText = "SELECT v FROM meta WHERE k='version'";
-    return q.ExecuteScalar() is string s ? long.Parse(s) : 0;
-}
-
-static (string? Code, long Exp) GetPair(SqliteConnection db)
-{
-    using var q = db.CreateCommand();
-    q.CommandText = "SELECT k,v FROM meta WHERE k IN ('pair_code','pair_expiry')";
-    string? code = null; long exp = 0;
-    using var r = q.ExecuteReader();
-    while (r.Read())
-        if (r.GetString(0) == "pair_code") code = r.GetString(1);
-        else exp = long.Parse(r.GetString(1));
-    return (code, exp);
-}
-
-static string NewToken()
-{
-    var b = RandomNumberGenerator.GetBytes(32);
-    return "tds_" + Convert.ToBase64String(b).TrimEnd('=').Replace('+', '-').Replace('/', '_');
-}
-
-static string Sha256Hex(string s)
-    => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(s)));
-
-static bool FixedEq(string a, string b)
-{
-    var ba = Encoding.UTF8.GetBytes(a);
-    var bb = Encoding.UTF8.GetBytes(b);
-    return ba.Length == bb.Length && CryptographicOperations.FixedTimeEquals(ba, bb);
-}
-
-static long Now() => DateTimeOffset.UtcNow.ToUnixTimeSeconds();
 
 // ── 请求/响应 DTO（类型声明必须在全部顶级语句之后）──
 record ItemDto(string Id, long UpdatedAt, long? DeletedAt, JsonElement Json);

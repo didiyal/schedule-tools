@@ -13,13 +13,18 @@ namespace TodoTimer.Models;
 /// </summary>
 public static class TodoStore
 {
-    private static readonly JsonSerializerOptions ReadOpts = new();
-    private static readonly JsonSerializerOptions WriteOpts = new()
+    /// <summary>落盘格式（缩进+中文不转义）——todos.json/state 文件共用，勿另建副本。</summary>
+    public static readonly JsonSerializerOptions WriteOpts = new()
     {
         WriteIndented = true,
-        // 中文不转义为 \uXXXX，对齐 Python json.dump(ensure_ascii=False)
         Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
     };
+    /// <summary>紧凑传输格式（同步上行 payload 用）。</summary>
+    public static readonly JsonSerializerOptions CompactOpts = new()
+    {
+        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+    };
+    private static readonly JsonSerializerOptions ReadOpts = new();
 
     public static TodoFile? Load(string path)
     {

@@ -7,6 +7,11 @@ import 'package:crypto/crypto.dart';
 /// TLS：服务器为自签证书，[pinnedSha256] 非空时逐请求比对证书指纹（hex 冒号分隔），
 /// 不匹配即抛 CertificateException——钉证书是安全边界，别用全局 allowBadCert 兜底。
 class TodoApi {
+  /// 服务器自签证书 SHA-256 指纹（部署时锁定，见 server/TodoSync/README.md）。
+  /// 钉扎是安全边界：指纹变更（重装/换证）需同步更新各端。
+  static const String defaultPinnedSha256 =
+      'BC:68:BF:4F:6F:1E:9E:0A:63:61:B2:93:57:8C:39:DC:7D:E6:C4:C6:CF:9B:65:0A:4B:E9:14:1A:04:3E:03:62';
+
   TodoApi({required this.server, required this.token, required this.pinnedSha256})
       : _base = server.endsWith('/') ? server.substring(0, server.length - 1) : server;
 

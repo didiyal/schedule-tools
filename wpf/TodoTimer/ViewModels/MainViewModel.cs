@@ -346,38 +346,14 @@ public partial class MainViewModel : ObservableObject
     private void ToggleComplete(string id)
     {
         if (!_byId.TryGetValue(id, out var t)) return;
-        if (t.Completed)
+        var now = (int)DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        if (!TaskOps.Uncomplete(t))
         {
-            t.Completed = false;                        // set_incomplete：仅翻标记
-        }
-        else
-        {
-            // set_complete 语义：停表 + 完成归入任务当前所属日期（不再强制改期到今天——
-            // 补卡语义 2026-10-27 用户拍板：昨天忘勾的任务今天补勾，历史留在昨天；
-            // 顺延已搬到今天的任务勾选后就留在今天，日期由顺延/拖拽/新建决定）
-            if (t.Running) { t.Elapsed = LiveElapsed(t); t.Running = false; t.LastStartedAt = null; }
-            t.Completed = true;
-            CompleteRolledFrom(t);   // 结转承接根完成 → 旧日结转根同步翻篇（用户拍板 2026-10-27）
+            TaskOps.Complete(t, now);
+            TaskOps.CompleteRolledChain(t, _byId, now);   // 结转承接根完成 → 旧日结转根同步翻篇（用户拍板 2026-10-27）
         }
         Rebuild();
         ScheduleSave();
-    }
-
-    /// <summary>沿 rolled_from 链把结转来源的旧根同步置完成（历史快照跟随今日根状态）。</summary>
-    private void CompleteRolledFrom(TodoItem t)
-    {
-        var seen = new HashSet<string>();
-        var cur = t.RolledFrom;
-        while (cur is not null && seen.Add(cur)
-               && _byId.TryGetValue(cur, out var old))
-        {
-            if (!old.Completed)
-            {
-                if (old.Running) { old.Elapsed = LiveElapsed(old); old.Running = false; old.LastStartedAt = null; }
-                old.Completed = true;
-            }
-            cur = old.RolledFrom;   // 链式：连续顺延多天的根一路翻篇
-        }
     }
 
     [RelayCommand]

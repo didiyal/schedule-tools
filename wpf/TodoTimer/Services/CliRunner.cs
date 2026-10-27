@@ -228,37 +228,13 @@ public static class CliRunner
         {
             if (!byId.TryGetValue(id, out var t)) { Err($"id 不存在: #{id}"); continue; }
             if (t.Completed == done) continue;
+            // 语义单点在 TaskOps（与 GUI 一致）：停表固化 + 补卡(不改期) + 结转链翻篇
             if (done)
             {
-                if (t.Running)
-                {
-                    t.Elapsed += (int)Math.Max(0, now - (long)(t.LastStartedAt ?? 0));
-                    t.Running = false;
-                    t.LastStartedAt = null;
-                }
-                // 补卡语义（与 GUI 一致）：完成归入任务当前所属日期，不强制改期到今天
+                TaskOps.Complete(t, now);
+                TaskOps.CompleteRolledChain(t, byId, now);
             }
-            t.Completed = done;
-            if (done)
-            {
-                // 结转承接根完成 → 旧日结转根同步翻篇（与 GUI 语义一致）
-                var cur = t.RolledFrom;
-                var seen = new HashSet<string>();
-                while (cur is not null && seen.Add(cur) && byId.TryGetValue(cur, out var old))
-                {
-                    if (!old.Completed)
-                    {
-                        if (old.Running)
-                        {
-                            old.Elapsed += (int)Math.Max(0, now - (long)(old.LastStartedAt ?? 0));
-                            old.Running = false;
-                            old.LastStartedAt = null;
-                        }
-                        old.Completed = true;
-                    }
-                    cur = old.RolledFrom;
-                }
-            }
+            else TaskOps.Uncomplete(t);
             n++;
         }
         if (n > 0) { Save(f); NotifyGui(); }
@@ -304,9 +280,7 @@ public static class CliRunner
             else
             {
                 if (!t.Running) continue;
-                t.Elapsed += (int)Math.Max(0, now - (long)(t.LastStartedAt ?? 0));
-                t.Running = false;
-                t.LastStartedAt = null;
+                TaskOps.StopTimer(t, now);
             }
             n++;
         }

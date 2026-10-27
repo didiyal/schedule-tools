@@ -75,6 +75,13 @@ public partial class App : Application
         };
         base.OnStartup(e);
 
+        // 组合根接线：同步诊断日志（开发机的 build_tmp；产品库不耦合机器路径）
+        Services.SyncService.LogSink = m =>
+        {
+            try { File.AppendAllText(@"D:\桌面\scheduleTools\tools\build_tmp\sync.log", m + Environment.NewLine); }
+            catch { /* 日志失败静默 */ }
+        };
+
         var main = new MainWindow { Title = "待办计时器 1.4" };   // 须与 FindWindowW 匹配
         MainWindow = main;
         main.Show();
