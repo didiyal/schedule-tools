@@ -23,15 +23,45 @@ public static class Store
     public static void Init(SqliteConnection db)
     {
         Exec(db, "PRAGMA journal_mode=WAL");
+
+        // todos：检测旧架构（无 space_id 列/PK=id）→ 重建为 (space_id,id) 复合主键，
+        // 存量数据全部归入 default 空间（服务端是同步枢纽，条目可由客户端重推，墓碑保留防复活）
+        var todosExists = TableExists(db, "todos");
+        var todosHasSpace = todosExists && ColumnExists(db, "todos", "space_id");
+        if (todosExists && !todosHasSpace)
+        {
+            Exec(db, "DROP INDEX IF EXISTS ix_todos_version");
+            Exec(db, "DROP INDEX IF EXISTS ix_todos_space");
+            Exec(db, """
+                CREATE TABLE todos_new(
+                    space_id TEXT NOT NULL DEFAULT 'default',
+                    id TEXT NOT NULL,
+                    json TEXT NOT NULL,
+                    updated_at INTEGER NOT NULL,
+                    deleted_at INTEGER,
+                    version INTEGER NOT NULL DEFAULT 0,
+                    PRIMARY KEY(space_id,id))
+                """);
+            Exec(db, """
+                INSERT INTO todos_new(space_id,id,json,updated_at,deleted_at,version)
+                SELECT 'default',id,json,updated_at,deleted_at,version FROM todos
+                """);
+            Exec(db, "DROP TABLE todos");
+            Exec(db, "ALTER TABLE todos_new RENAME TO todos");
+        }
         Exec(db, """
             CREATE TABLE IF NOT EXISTS todos(
-                id TEXT PRIMARY KEY,
+                space_id TEXT NOT NULL DEFAULT 'default',
+                id TEXT NOT NULL,
                 json TEXT NOT NULL,
                 updated_at INTEGER NOT NULL,
                 deleted_at INTEGER,
-                version INTEGER NOT NULL DEFAULT 0)
+                version INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY(space_id,id))
             """);
+        Exec(db, "CREATE INDEX IF NOT EXISTS ix_todos_space ON todos(space_id)");
         Exec(db, "CREATE INDEX IF NOT EXISTS ix_todos_version ON todos(version)");
+
         Exec(db, """
             CREATE TABLE IF NOT EXISTS devices(
                 token_hash TEXT PRIMARY KEY,
@@ -39,7 +69,27 @@ public static class Store
                 paired_at INTEGER NOT NULL,
                 last_seen INTEGER NOT NULL DEFAULT 0)
             """);
+        if (TableExists(db, "devices") && !ColumnExists(db, "devices", "space_id"))
+            Exec(db, "ALTER TABLE devices ADD COLUMN space_id TEXT NOT NULL DEFAULT 'default'");
+
         Exec(db, "CREATE TABLE IF NOT EXISTS meta(k TEXT PRIMARY KEY, v TEXT NOT NULL)");
+    }
+
+    private static bool TableExists(SqliteConnection db, string name)
+    {
+        using var q = db.CreateCommand();
+        q.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=@n";
+        q.Parameters.AddWithValue("@n", name);
+        return Convert.ToInt64(q.ExecuteScalar()) > 0;
+    }
+
+    private static bool ColumnExists(SqliteConnection db, string table, string column)
+    {
+        using var q = db.CreateCommand();
+        q.CommandText = "SELECT COUNT(*) FROM pragma_table_info(@t) WHERE name=@c";
+        q.Parameters.AddWithValue("@t", table);
+        q.Parameters.AddWithValue("@c", column);
+        return Convert.ToInt64(q.ExecuteScalar()) > 0;
     }
 
     public static void Exec(SqliteConnection db, string sql, params (string Name, object? Value)[] ps)
@@ -60,26 +110,32 @@ public static class Store
     public static void SetVersion(SqliteConnection db, long v)
         => Exec(db, "INSERT INTO meta(k,v) VALUES('version',@v) ON CONFLICT(k) DO UPDATE SET v=@v", ("@v", v));
 
-    public static (string? Code, long Exp) GetPair(SqliteConnection db)
+    public static (string? Code, long Exp, string Space) GetPairSpace(SqliteConnection db)
     {
         using var q = db.CreateCommand();
-        q.CommandText = "SELECT k,v FROM meta WHERE k IN ('pair_code','pair_expiry')";
+        q.CommandText = "SELECT k,v FROM meta WHERE k IN ('pair_code','pair_expiry','pair_space')";
         string? code = null;
         long exp = 0;
+        var space = "default";
         using var r = q.ExecuteReader();
         while (r.Read())
-            if (r.GetString(0) == "pair_code") code = r.GetString(1);
+        {
+            var k = r.GetString(0);
+            if (k == "pair_code") code = r.GetString(1);
+            else if (k == "pair_space") space = r.GetString(1);
             else exp = long.Parse(r.GetString(1));
-        return (code, exp);
+        }
+        return (code, exp, space);
     }
 
     public static void ClearPair(SqliteConnection db)
         => Exec(db, "DELETE FROM meta WHERE k IN ('pair_code','pair_expiry')");
 
-    public static void SetPair(SqliteConnection db, string code, long exp)
+    public static void SetPair(SqliteConnection db, string code, long exp, string space)
     {
         Exec(db, "INSERT INTO meta(k,v) VALUES('pair_code',@c) ON CONFLICT(k) DO UPDATE SET v=@c", ("@c", code));
         Exec(db, "INSERT INTO meta(k,v) VALUES('pair_expiry',@e) ON CONFLICT(k) DO UPDATE SET v=@e", ("@e", exp));
+        Exec(db, "INSERT INTO meta(k,v) VALUES('pair_space',@s) ON CONFLICT(k) DO UPDATE SET v=@s", ("@s", space));
     }
 
     public static long? TodoUpdatedAt(SqliteConnection db, string id)
@@ -92,30 +148,33 @@ public static class Store
     }
 
     /// <summary>墓碑（deleted_at 非空）不覆盖原 json；普通条目整体覆盖。</summary>
-    public static void UpsertTodo(SqliteConnection db, string id, string json,
+    public static void UpsertTodo(SqliteConnection db, string space, string id, string json,
         long updatedAt, long? deletedAt, long version)
     {
         if (deletedAt is null)
             Exec(db, """
-                INSERT INTO todos(id,json,updated_at,deleted_at,version) VALUES(@id,@j,@u,NULL,@v)
-                ON CONFLICT(id) DO UPDATE SET json=@j, updated_at=@u, deleted_at=NULL, version=@v
+                INSERT INTO todos(space_id,id,json,updated_at,deleted_at,version)
+                VALUES(@s,@id,@j,@u,NULL,@v)
+                ON CONFLICT(space_id,id) DO UPDATE SET json=@j, updated_at=@u, deleted_at=NULL, version=@v
                 """,
-                ("@id", id), ("@j", json), ("@u", updatedAt), ("@v", version));
+                ("@s", space), ("@id", id), ("@j", json), ("@u", updatedAt), ("@v", version));
         else
             Exec(db, """
-                INSERT INTO todos(id,json,updated_at,deleted_at,version) VALUES(@id,@j,@u,@d,@v)
-                ON CONFLICT(id) DO UPDATE SET updated_at=@u, deleted_at=@d, version=@v
+                INSERT INTO todos(space_id,id,json,updated_at,deleted_at,version)
+                VALUES(@s,@id,@j,@u,@d,@v)
+                ON CONFLICT(space_id,id) DO UPDATE SET updated_at=@u, deleted_at=@d, version=@v
                 """,
-                ("@id", id), ("@j", json), ("@u", updatedAt), ("@d", deletedAt), ("@v", version));
+                ("@s", space), ("@id", id), ("@j", json), ("@u", updatedAt), ("@d", deletedAt), ("@v", version));
     }
 
     /// <summary>since 之后（含墓碑）的全部变更行，按版本升序。</summary>
     public static List<(string Id, string Json, long UpdatedAt, long? DeletedAt)> ChangesSince(
-        SqliteConnection db, long since)
+        SqliteConnection db, string space, long since)
     {
         var list = new List<(string, string, long, long?)>();
         using var q = db.CreateCommand();
-        q.CommandText = "SELECT id,json,updated_at,deleted_at FROM todos WHERE version>@s ORDER BY version";
+        q.CommandText = "SELECT id,json,updated_at,deleted_at FROM todos WHERE space_id=@sp AND version>@s ORDER BY version";
+        q.Parameters.AddWithValue("@sp", space);
         q.Parameters.AddWithValue("@s", since);
         using var r = q.ExecuteReader();
         while (r.Read())
@@ -124,18 +183,19 @@ public static class Store
         return list;
     }
 
-    public static bool TouchDevice(SqliteConnection db, string hash, long now)
+    /// <summary>设备令牌心跳：刷新 last_seen 并返回所属空间（null=令牌不存在）。</summary>
+    public static string? TouchDeviceSpace(SqliteConnection db, string hash, long now)
     {
         using var cmd = db.CreateCommand();
-        cmd.CommandText = "UPDATE devices SET last_seen=@n WHERE token_hash=@h";
+        cmd.CommandText = "UPDATE devices SET last_seen=@n WHERE token_hash=@h RETURNING space_id";
         cmd.Parameters.AddWithValue("@n", now);
         cmd.Parameters.AddWithValue("@h", hash);
-        return cmd.ExecuteNonQuery() == 1;
+        return cmd.ExecuteScalar() as string;
     }
 
-    public static void InsertDevice(SqliteConnection db, string hash, string name, long now)
-        => Exec(db, "INSERT OR REPLACE INTO devices(token_hash,name,paired_at,last_seen) VALUES(@h,@n,@p,@p)",
-            ("@h", hash), ("@n", name), ("@p", now));
+    public static void InsertDevice(SqliteConnection db, string hash, string name, string space, long now)
+        => Exec(db, "INSERT OR REPLACE INTO devices(token_hash,name,paired_at,last_seen,space_id) VALUES(@h,@n,@p,@p,@s)",
+            ("@h", hash), ("@n", name), ("@p", now), ("@s", space));
 
     public static List<(string Hash, string Name, long PairedAt, long LastSeen)> Devices(SqliteConnection db)
     {
@@ -150,4 +210,15 @@ public static class Store
 
     public static void DeleteDevice(SqliteConnection db, string hash)
         => Exec(db, "DELETE FROM devices WHERE token_hash=@h", ("@h", hash));
+
+    /// <summary>运维视图：各空间的条目数（含墓碑）。</summary>
+    public static List<(string Space, int Count)> SpaceStats(SqliteConnection db)
+    {
+        var list = new List<(string, int)>();
+        using var q = db.CreateCommand();
+        q.CommandText = "SELECT space_id, COUNT(*) FROM todos GROUP BY space_id ORDER BY space_id";
+        using var r = q.ExecuteReader();
+        while (r.Read()) list.Add((r.GetString(0), r.GetInt32(1)));
+        return list;
+    }
 }

@@ -42,19 +42,27 @@ static string? Bearer(HttpRequest req)
 
 bool IsAdmin(string? token) => token is not null && Util.FixedEq(Util.Sha256Hex(token), adminHash);
 
-// 设备令牌命中则刷新 last_seen 并放行
-bool TouchDevice(string? token)
-{
-    if (token is null || token.Length < 16) return false;
-    using var db = Store.OpenDb(dbPath);
-    return Store.TouchDevice(db, Util.Sha256Hex(token), Util.Now());
-}
+// 设备令牌命中则刷新 last_seen 并解析所属空间；管理员令牌固定 default 空间
+const string DefaultSpace = "default";
 
-IResult? Auth(HttpContext ctx)
+(string? Space, bool Ok) ResolveSpace(HttpContext ctx)
 {
     var t = Bearer(ctx.Request);
-    if (IsAdmin(t)) return null;
-    if (TouchDevice(t)) return null;
+    if (IsAdmin(t)) return (DefaultSpace, true);
+    if (t is not null && t.Length >= 16)
+    {
+        using var db = Store.OpenDb(dbPath);
+        var space = Store.TouchDeviceSpace(db, Util.Sha256Hex(t), Util.Now());
+        if (space is not null) return (space, true);
+    }
+    return (null, false);
+}
+
+IResult? AuthSpace(HttpContext ctx, out string space)
+{
+    var (sp, ok) = ResolveSpace(ctx);
+    space = sp ?? "";
+    if (ok) { space = sp!; return null; }
     return Results.Json(new { error = "unauthorized" }, statusCode: 401);
 }
 
@@ -74,21 +82,21 @@ app.MapPost("/api/pair", (PairReq req) =>
     lock (gate)
     {
         using var db = Store.OpenDb(dbPath);
-        var (code, exp) = Store.GetPair(db);
+        var (code, exp, pairSpace) = Store.GetPairSpace(db);
         if (code is null || Util.Now() > exp || req.Code is null
             || !Util.FixedEq(req.Code.Trim(), code))
             return Results.Json(new { error = "invalid-or-expired-code" }, statusCode: 403);
         var token = Util.NewToken();
-        Store.InsertDevice(db, Util.Sha256Hex(token), req.Name ?? "", Util.Now());
+        Store.InsertDevice(db, Util.Sha256Hex(token), req.Name ?? "", pairSpace, Util.Now());
         Store.ClearPair(db);
-        return Results.Json(new { token });
+        return Results.Json(new { token, space = pairSpace });
     }
 });
 
 // ── 上行变更：逐条 LWW（只接受更新的），批次版本 +1 ──
 app.MapPost("/api/changes", (HttpContext ctx, ChangesReq? req) =>
 {
-    var deny = Auth(ctx);
+    var deny = AuthSpace(ctx, out var space);
     if (deny is not null) return deny;
     if (req?.Items is null || req.Items.Length == 0)
         return Results.Json(new { error = "empty-items" }, statusCode: 400);
@@ -105,7 +113,7 @@ app.MapPost("/api/changes", (HttpContext ctx, ChangesReq? req) =>
             if (it.DeletedAt is null && it.Json.ValueKind != JsonValueKind.Object) continue;
             var cur = Store.TodoUpdatedAt(db, it.Id);
             if (cur is not null && cur >= it.UpdatedAt) continue;   // LWW：旧的丢弃
-            Store.UpsertTodo(db, it.Id,
+            Store.UpsertTodo(db, space, it.Id,
                 it.Json.ValueKind == JsonValueKind.Object ? it.Json.GetRawText() : "{}",
                 it.UpdatedAt, it.DeletedAt, ver);
             accepted++;
@@ -122,12 +130,12 @@ app.MapPost("/api/changes", (HttpContext ctx, ChangesReq? req) =>
 // ── 拉增量 / 全量（since=0 即全量快照，含墓碑）──
 app.MapGet("/api/changes", (HttpContext ctx, long since) =>
 {
-    var deny = Auth(ctx);
+    var deny = AuthSpace(ctx, out var space);
     if (deny is not null) return deny;
     lock (gate)
     {
         using var db = Store.OpenDb(dbPath);
-        var items = Store.ChangesSince(db, since)
+        var items = Store.ChangesSince(db, space, since)
             .Select(r => new ItemDto(r.Id, r.UpdatedAt, r.DeletedAt,
                 JsonDocument.Parse(r.Json).RootElement.Clone()))
             .ToList();
@@ -136,17 +144,21 @@ app.MapGet("/api/changes", (HttpContext ctx, long since) =>
 });
 
 // ── 管理员：生成配对码 / 设备管理 ──
-app.MapPost("/api/admin/paircode", (HttpContext ctx) =>
+app.MapPost("/api/admin/paircode", (HttpContext ctx, PairCodeReq? req) =>
 {
     if (!IsAdmin(Bearer(ctx.Request)))
         return Results.Json(new { error = "unauthorized" }, statusCode: 401);
+    // 空间标签白名单：小写字母/数字/下划线/连字符，≤32
+    var space = req?.Space is { Length: > 0 } sp ? sp.Trim() : DefaultSpace;
+    if (space.Length > 32 || !space.All(char.IsAsciiLetterOrDigit) || space != space.ToLowerInvariant())
+        return Results.Json(new { error = "invalid-space" }, statusCode: 400);
     lock (gate)
     {
         var code = Random.Shared.Next(0, 1_000_000).ToString("D6");
         var exp = Util.Now() + 300;
         using var db = Store.OpenDb(dbPath);
-        Store.SetPair(db, code, exp);
-        return Results.Json(new { code, expiresAt = exp });
+        Store.SetPair(db, code, exp, space);
+        return Results.Json(new { code, expiresAt = exp, space });
     }
 });
 
@@ -176,6 +188,21 @@ app.MapDelete("/api/admin/devices/{hash}", (HttpContext ctx, string hash) =>
     }
 });
 
+// 运维：空间清单（空间/条目数，含墓碑）
+app.MapGet("/api/admin/spaces", (HttpContext ctx) =>
+{
+    if (!IsAdmin(Bearer(ctx.Request)))
+        return Results.Json(new { error = "unauthorized" }, statusCode: 401);
+    lock (gate)
+    {
+        using var db = Store.OpenDb(dbPath);
+        var spaces = Store.SpaceStats(db)
+            .Select(s => new { space = s.Space, todos = s.Count })
+            .ToList();
+        return Results.Json(new { spaces });
+    }
+});
+
 app.Run();
 return;
 
@@ -192,3 +219,4 @@ record ItemDto(string Id, long UpdatedAt, long? DeletedAt, JsonElement Json);
 record ChangesReq(ItemDto[]? Items);
 record PairReq(string? Code, string? Name);
 record DeviceDto(string Hash, string Name, long PairedAt, long LastSeen);
+record PairCodeReq(string? Space);
