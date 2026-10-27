@@ -18,6 +18,9 @@
   （历史快照跟随翻篇；GUI 与 CLI done 一致；取消完成不逆翻）。
 - **云同步三端**：TodoSync 服务端 + 桌面同步模块 + 安卓 Flutter APP（见各 README）。
 - **每日顺延**：跨日自动结转（详见 v1.5 各项）。
+- **服务端空间隔离（多用户）**：todos/devices 增加 space_id，令牌绑定空间、
+  API 全量按空间过滤（互相不可见）；配对码可指定空间；存量数据自动归入
+  default 空间（服务端启动自动迁移）。共享清单（一空间多用户）留待后续。
 - **安装包与更新机制（M5）**：`TodoTimer_Setup_1.4.0.exe`（Inno Setup，self-contained
   零依赖，按用户装 LocalAppData\Programs，免管理员）；固定 AppId 与 1.2 一致 →
   原地升级自动继承 data/；旧 Python EXE 安装时清理；运行中实例自动关闭。

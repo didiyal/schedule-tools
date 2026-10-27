@@ -18,6 +18,13 @@
   `BC:68:BF:4F:6F:1E:9E:0A:63:61:B2:93:57:8C:39:DC:7D:E6:C4:C6:CF:9B:65:0A:4B:E9:14:1A:04:3E:03:62`
 - SWAS 防火墙 443/tcp 已放行（ListFirewallRules 原有规则，未新增）。
 
+- **空间隔离（v1.5 多用户，2026-10-27）**：todos/devices 带 space_id；管理员令牌
+  =default 空间；为新用户开空间=管理员调 paircode 传 {"space":"用户名"} → 对方
+  配对即入该空间（数据互不可见）；`GET /api/admin/spaces` 查空间分布。
+  共享清单（一空间多用户共管）为后续方向。API 面已扩：
+  /healthz（含 app 字段）、POST /api/pair、POST|GET /api/changes、
+  POST /api/admin/paircode（可带 space）、GET /api/admin/spaces、/api/admin/devices。
+
 ## 服务器访问
 
 ```bash

@@ -36,6 +36,10 @@
   `meta(version)`。全局递增版本号，每条变更 bump。
 - **鉴权**：单用户；桌面端设置页生成**设备令牌**（长随机串），手机扫码/粘贴
   配对；所有 API 走 HTTPS + `Authorization: Bearer <token>`。
+- **空间隔离（2026-10-27 落地）**：todos/devices 加 space_id；管理员令牌绑定
+  default 空间；paircode 可指定空间 → 新设备配对即入对应空间，数据互不可见。
+  共享清单（一空间多用户共管）为后续方向：届时引入 space_members 成员表即可，
+  空间维度已就绪。
 - **API 草案**：
   - `POST /api/pair {pairCode}` → `{deviceToken}`（配对码由桌面端生成，5 分钟有效）
   - `GET  /api/todos` → 全量快照 `{version, todos[]}`
