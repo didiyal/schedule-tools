@@ -52,8 +52,19 @@ Name: "desktopicon"; Description: "在桌面创建快捷方式(&D)"; GroupDescri
 [InstallDelete]
 Type: files; Name: "{app}\{#MyAppLegacyExe}"
 
+[Registry]
+; 应用身份注册（HKCU 免管理员）：
+; 1) App Paths —— Win+R 直接输 TodoTimer、Windows 搜索可索引
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\App Paths\{#MyAppExeName}"; ValueType: string; ValueName: ""; ValueData: "{app}\{#MyAppExeName}"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\App Paths\{#MyAppExeName}"; ValueType: string; ValueName: "Path"; ValueData: "{app}"; Flags: uninsdeletekey
+; 2) AUMID 应用身份 —— 通知中心 toast 显示名称/图标、搜索与任务栏正确归组（与 App 内 SetAumid 对应）
+Root: HKCU; Subkey: "Software\Classes\AppUserModelId\TodoTimer.App"; ValueType: string; ValueName: "DisplayName"; ValueData: "{#MyAppName}"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\AppUserModelId\TodoTimer.App"; ValueType: string; ValueName: "IconUri"; ValueData: "{app}\app.ico"; Flags: uninsdeletekey
+
 [Files]
 Source: "publish\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "*.pdb"
+; AUMID 注册引用的图标
+Source: "app.ico"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"

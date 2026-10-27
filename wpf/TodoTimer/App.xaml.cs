@@ -29,6 +29,21 @@ public partial class App : Application
 
     [DllImport("kernel32.dll")]
     private static extern bool AttachConsole(uint processId);
+
+    [DllImport("shell32.dll", SetLastError = true)]
+    private static extern int SetCurrentProcessExplicitAppUserModelID([MarshalAs(UnmanagedType.LPWStr)] string appID);
+
+    /// <summary>进程 AUMID——与安装器注册表 HKCU\Classes\AppUserModelId\TodoTimer.App
+    /// 对应：通知中心显示名称/图标、任务栏归组、Windows 搜索识别都靠它。</summary>
+    private static void SetAumid()
+    {
+        try
+        {
+            var hr = SetCurrentProcessExplicitAppUserModelID("TodoTimer.App");
+            if (hr != 0) throw new System.ComponentModel.Win32Exception(hr);
+        }
+        catch { /* AUMID 失败不影响功能（仅通知中心身份降级） */ }
+    }
     [DllImport("kernel32.dll")]
     private static extern bool FreeConsole();
     private const uint ATTACH_PARENT_PROCESS = 0xFFFFFFFF;
@@ -74,6 +89,7 @@ public partial class App : Application
             e2.Handled = false;
         };
         base.OnStartup(e);
+        SetAumid();                            // 应用身份（通知中心/搜索/任务栏归组）
 
         // 组合根接线：同步诊断日志（开发机的 build_tmp；产品库不耦合机器路径）
         Services.SyncService.LogSink = m =>
