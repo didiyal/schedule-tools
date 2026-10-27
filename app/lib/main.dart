@@ -41,7 +41,6 @@ class _RootPageState extends State<RootPage> with WidgetsBindingObserver {
   TodoApi? _api;
   Timer? _poll;
   String _status = '';
-  int _lastPushed = 0;   // 最近一轮上行 accepted 数（状态栏展示）
   bool _todayOnly = false;
 
   @override
@@ -185,7 +184,7 @@ class _RootPageState extends State<RootPage> with WidgetsBindingObserver {
         t.running = false;
         t.lastStartedAt = null;
       }
-      t.date = Todo.todayStr();
+      // 补卡语义（与桌面一致）：完成归入任务当前所属日期，不强制改期到今天
     }
     _write(t);
   }
@@ -313,13 +312,22 @@ class _RootPageState extends State<RootPage> with WidgetsBindingObserver {
                 value: t.completed,
                 onChanged: (_) => _toggleDone(t),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4))),
-            title: Text(t.text,
-                style: TextStyle(
-                    fontSize: 14,
-                    decoration: t.completed ? TextDecoration.lineThrough : null,
-                    color: t.completed
-                        ? Colors.grey
-                        : (t.parent == null ? null : Colors.black87))),
+            title: Row(children: [
+              if (t.rolledAt != null)
+                Padding(
+                    padding: const EdgeInsets.only(right: 5),
+                    child: Text('已结转',
+                        style: TextStyle(fontSize: 10, color: Colors.grey[400]))),
+              Expanded(
+                  child: Text(t.text,
+                      style: TextStyle(
+                          fontSize: 14,
+                          decoration:
+                              t.completed ? TextDecoration.lineThrough : null,
+                          color: t.completed
+                              ? Colors.grey
+                              : (t.parent == null ? null : Colors.black87)))),
+            ]),
             subtitle: t.liveElapsed > 0 || t.running
                 ? Text(_fmt(t.liveElapsed),
                     style: TextStyle(fontSize: 11, color: t.running ? _green : Colors.grey))

@@ -19,6 +19,8 @@ class Todo {
     required this.date,
     this.archivedAt,
     this.updatedAt = 0,
+    this.rolledAt,
+    this.rolledFrom,
   });
 
   String id;
@@ -36,6 +38,8 @@ class Todo {
   String date;         // yyyy-MM-dd
   String? archivedAt;
   int updatedAt;       // LWW 时间戳
+  String? rolledAt;    // 跨日结转标记（与桌面 v1.5 契约对齐——上行时必须回传，否则会抹掉桌面写入）
+  String? rolledFrom;  // 今日承接根 → 结转的旧根 id
 
   /// 含运行中的实时时长（对齐桌面 LiveElapsed）。
   int get liveElapsed {
@@ -60,6 +64,8 @@ class Todo {
         date: (j['date'] ?? '') as String,
         archivedAt: j['archived_at'] as String?,
         updatedAt: (j['updated_at'] ?? 0) as int,
+        rolledAt: j['rolled_at'] as String?,
+        rolledFrom: j['rolled_from'] as String?,
       );
 
   Map<String, dynamic> toJson() => {
@@ -80,6 +86,8 @@ class Todo {
         'date': date,
         'archived_at': archivedAt,
         'updated_at': updatedAt,
+        'rolled_at': rolledAt,
+        'rolled_from': rolledFrom,
       };
 
   Todo copy() => Todo.fromJson(jsonDecode(jsonEncode(toJson())) as Map<String, dynamic>);
