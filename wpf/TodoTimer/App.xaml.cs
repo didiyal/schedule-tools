@@ -153,7 +153,11 @@ public partial class App : Application
                 BalloonIcon.Warning);
         };
         _reminderTick = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
-        _reminderTick.Tick += (_, _) => vm.CheckReminders();
+        _reminderTick.Tick += (_, _) =>
+        {
+            vm.CheckReminders();
+            vm.RunDayRollover();   // 常驻过午夜：自动把昨天的未完成搬到今天（内部幂等+防重入）
+        };
         _reminderTick.Start();
     }
 

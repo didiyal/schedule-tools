@@ -253,6 +253,14 @@
                                         <DataTrigger Binding="{Binding Todo.Completed}" Value="True">
                                             <Setter Property="Background" Value="#E8F7EE"/>
                                         </DataTrigger>
+                                        <!-- 已结转（跨日顺延留档的根）：灰底+降透明，与完成态区分——"翻篇"而非"做完" -->
+                                        <MultiDataTrigger>
+                                            <MultiDataTrigger.Conditions>
+                                                <Condition Binding="{Binding Rolled}" Value="True"/>
+                                                <Condition Binding="{Binding Todo.Completed}" Value="False"/>
+                                            </MultiDataTrigger.Conditions>
+                                            <Setter Property="Opacity" Value="0.62"/>
+                                        </MultiDataTrigger>
                                         <DataTrigger Binding="{Binding Dim}" Value="True">
                                             <Setter Property="Opacity" Value="0.45"/>
                                         </DataTrigger>
@@ -304,6 +312,21 @@
                                             <Setter Property="Visibility" Value="Collapsed"/>
                                             <Style.Triggers>
                                                 <DataTrigger Binding="{Binding Todo.Starred}" Value="True">
+                                                    <Setter Property="Visibility" Value="Visible"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
+                                <!-- 已结转角标（跨日留档的根） -->
+                                <TextBlock Grid.Column="1" Text="已结转" FontSize="10"
+                                           Foreground="{StaticResource Brush.TextQuaternary}"
+                                           VerticalAlignment="Center" Margin="2,0,4,0">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding Rolled}" Value="True">
                                                     <Setter Property="Visibility" Value="Visible"/>
                                                 </DataTrigger>
                                             </Style.Triggers>

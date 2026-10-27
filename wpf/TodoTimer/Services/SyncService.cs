@@ -17,6 +17,7 @@ public sealed class SyncState
     public string AdminToken { get; set; } = "";    // 管理员令牌（桌面端=权威端）
     public long ServerVersion { get; set; }         // 已拉到的服务端版本
     public long PushedAtHighWater { get; set; }     // 已上行条目的 UpdatedAt 高水位
+    public bool Seeded { get; set; }                // 存量已补推（首次配置后首轮全量上行）
     public string? PinnedFingerprint { get; set; }  // 服务器证书 SHA-256（hex 冒号），设置时锁定
     public Dictionary<string, string> Fingerprints { get; set; } = new();   // id → 内容指纹
     public Dictionary<string, long> Tombstones { get; set; } = new();       // id → 删除时刻
@@ -117,6 +118,10 @@ public sealed class SyncService : IDisposable
             _state.AdminToken = adminToken;
             _state.ServerVersion = version;      // 从当前版本起增量拉
             _state.PinnedFingerprint ??= fp;
+            // 新配置/换服务器 → 清指纹表（下轮对账把全部条目当首次登记）并标记未播种，
+            // 首轮推送把存量全量灌上服务器（否则新设备只能拉到零散增量）
+            if (_state.Seeded == false || _state.Fingerprints.Count == 0)
+                _state.Seeded = false;
             SaveState();
         }
         SetStatus($"已连接，服务器版本 {version}");
@@ -144,6 +149,7 @@ public sealed class SyncService : IDisposable
         AdminToken = s.AdminToken,
         ServerVersion = s.ServerVersion,
         PushedAtHighWater = s.PushedAtHighWater,
+        Seeded = s.Seeded,
         PinnedFingerprint = s.PinnedFingerprint,
         Fingerprints = new Dictionary<string, string>(s.Fingerprints),
         Tombstones = new Dictionary<string, long>(s.Tombstones),
@@ -200,13 +206,15 @@ public sealed class SyncService : IDisposable
             {
                 var fp = SyncOps.Fingerprint(t);
                 var changed = !_state.Fingerprints.TryGetValue(t.Id, out var old) || old != fp;
+                // 播种期（Seeded=false）：不看 changed，全部条目上行一次（存量补推）
+                if (!_state.Seeded) changed = true;
                 if (changed)
                 {
-                    // 已登记条目变更 → 置 now 上行；
-                    // 首次登记：UpdatedAt==0 的真·本地新建 → 置 now 上行；UpdatedAt>0 的
-                    // （远端带下来的存量）→ 只补指纹静默收编，不回推
+                    // 播种期：全量上行（时间戳统一置 now，服务端 LWW 收编）；
+                    // 播种后：已登记条目变更 → 置 now 上行；真·本地新建（UpdatedAt==0）→ 置 now 上行；
+                    // 远端带下来的存量只补指纹不回推。
                     var known = _state.Fingerprints.ContainsKey(t.Id);
-                    if (known || t.UpdatedAt == 0)
+                    if (!_state.Seeded || known || t.UpdatedAt == 0)
                     {
                         t.UpdatedAt = now;
                         batch.Add((t.Id, t, now, false));
@@ -270,6 +278,7 @@ public sealed class SyncService : IDisposable
                 lock (_gate)
                 {
                     _state.PushedAtHighWater = Math.Max(_state.PushedAtHighWater, batch.Max(b => b.updatedAt));
+                    _state.Seeded = true;            // 本批含存量补推完成，之后回归增量
                     SaveState();
                 }
             }

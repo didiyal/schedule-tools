@@ -18,6 +18,7 @@ public sealed class PlanRow
     public bool Expandable { get; init; }
     public bool Expanded { get; init; } = true;
     public bool Dim { get; init; }
+    public bool Rolled { get; init; }     // 已结转（跨日顺延留档的根）
     public bool ShowDate { get; init; }
     public string Progress { get; init; } = "";
     public string DateBadge { get; init; } = "";
@@ -139,6 +140,7 @@ public static class RenderPlan
                         Expandable = expandable,
                         Expanded = !collapsed.Contains(tid),
                         Dim = !keep.Contains(tid),
+                        Rolled = w.RolledAt is not null,
                         ShowDate = showDate,
                         Progress = prog,
                         DateBadge = showDate ? FormatDateShort(w.Date) : "",

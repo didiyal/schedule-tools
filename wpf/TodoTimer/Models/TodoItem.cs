@@ -24,4 +24,5 @@ public sealed class TodoItem
     [JsonPropertyName("date")] public string Date { get; set; } = TodayStr();
     [JsonPropertyName("archived_at")] public string? ArchivedAt { get; set; }   // 仅 archive.json 使用
     [JsonPropertyName("updated_at")] public long UpdatedAt { get; set; }        // 同步 LWW 时间戳（秒），旧数据缺省 0
+    [JsonPropertyName("rolled_at")] public string? RolledAt { get; set; }       // 跨日结转标记（v1.5 每日顺延；"已结转"≠Completed，不污染统计/归档）
 }

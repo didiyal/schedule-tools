@@ -87,6 +87,7 @@ public partial class MainViewModel : ObservableObject
             if (t.Order >= _nextOrder) _nextOrder = t.Order + 1;
         }
         CatchupOffline();
+        RunDayRollover();   // 每日顺延：启动时把昨天的未完成搬到今天（幂等）
         Rebuild();
         // 自启意图落盘自愈：即使 Run 键被清理工具删掉也能恢复（对齐 Python）
         _suppressAutostartSync = true;
@@ -805,4 +806,32 @@ public partial class MainViewModel : ObservableObject
         var s = seconds % 60;
         return h > 0 ? $"{h}小时{m}分" : m > 0 ? $"{m}分{s}秒" : $"{s}秒";
     }
+
+    // ── 每日顺延（v1.5）：启动时 + 常驻过午夜时把旧日未完成搬到今天 ──
+
+    private string _lastRolloverDay = "";
+    private bool _rolloverRunning;
+
+    /// <summary>跑一次顺延（幂等）；产生变更则重建+存盘+toast。</summary>
+    public void RunDayRollover()
+    {
+        var today = TodoItem.TodayStr();
+        if (today == _lastRolloverDay) return;   // 当天已跑过
+        _lastRolloverDay = today;
+        if (_rolloverRunning) return;            // 防重入（IPC reload 与午夜 tick 撞车）
+        _rolloverRunning = true;
+        try
+        {
+            var (changed, summary) = DayRollover.Run(_file.Todos, today);
+            if (!changed) return;
+            RebuildIndex();                      // 顺延可能新建根
+            Rebuild();
+            Save();
+            if (summary.Length > 0) ShowToast($"每日顺延：{Truncate(summary, 60)}");
+        }
+        finally { _rolloverRunning = false; }
+    }
+
+    private static string Truncate(string s, int max)
+        => s.Length <= max ? s : s[..(max - 1)] + "…";
 }
