@@ -49,7 +49,7 @@ ASP.NET Core 8 + SQLite 同步枢纽：设备令牌鉴权、配对码、增量 A
 ## 使用（桌面端）
 
 - 安装包：**[GitHub Releases](https://github.com/didiyal/schedule-tools/releases)**
-  下载 `待办计时器_Setup_1.4.0.exe`（self-contained 零依赖，按用户安装免管理员，
+  下载 `TodoTimer_Setup_1.4.0.exe`（self-contained 零依赖，按用户安装免管理员，
   原地升级自动继承数据）；开发运行：`cd wpf && dotnet run`
 - 数据在 **EXE 同目录 `data/`**（todos.json + archive.json + syncstate.json，便携）
 - 快捷键：Tab/Shift+Tab 层级、Delete 删整枝、Ctrl+Z 整枝恢复、Ctrl+Q 退出、双击加面板
