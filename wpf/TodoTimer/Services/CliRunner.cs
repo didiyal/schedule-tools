@@ -239,6 +239,26 @@ public static class CliRunner
                 t.Date = TodoItem.TodayStr();   // 完成归到当天
             }
             t.Completed = done;
+            if (done)
+            {
+                // 结转承接根完成 → 旧日结转根同步翻篇（与 GUI 语义一致）
+                var cur = t.RolledFrom;
+                var seen = new HashSet<string>();
+                while (cur is not null && seen.Add(cur) && byId.TryGetValue(cur, out var old))
+                {
+                    if (!old.Completed)
+                    {
+                        if (old.Running)
+                        {
+                            old.Elapsed += (int)Math.Max(0, now - (long)(old.LastStartedAt ?? 0));
+                            old.Running = false;
+                            old.LastStartedAt = null;
+                        }
+                        old.Completed = true;
+                    }
+                    cur = old.RolledFrom;
+                }
+            }
             n++;
         }
         if (n > 0) { Save(f); NotifyGui(); }

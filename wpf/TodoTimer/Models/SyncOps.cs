@@ -24,7 +24,7 @@ public static class SyncOps
             t.Visible ? 1 : 0, t.Order, t.Starred ? 1 : 0, t.Running ? 1 : 0,
             t.LastStartedAt?.ToString(CultureInfo.InvariantCulture) ?? "",
             t.TargetSeconds?.ToString(CultureInfo.InvariantCulture) ?? "",
-            t.Reminded ? 1 : 0, t.Date, t.ArchivedAt ?? "", t.RolledAt ?? "");
+            t.Reminded ? 1 : 0, t.Date, t.ArchivedAt ?? "", t.RolledAt ?? "", t.RolledFrom ?? "");
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(s)));
     }
 

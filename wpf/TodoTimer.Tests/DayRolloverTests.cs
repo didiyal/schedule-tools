@@ -148,4 +148,42 @@ public class DayRolloverTests
         Assert.Equal("2", a1.Parent);      // 深层结构原样跟着 A
         Assert.Equal(T, a1.Date);
     }
+
+    [Fact]
+    public void CrossDateLeaf_AlsoCollected_UnderNewRoot()
+    {
+        // 168 场景：旧根的未完成叶早已跨日（date=今天）——仍要被今日新根收编，
+        // 否则今天看不到这棵树（用户报"今日里没看到结转的任务"）
+        var todos = new List<TodoItem>
+        {
+            New("1", "工作流", null, Y),
+            New("2", "设计", "1", Y, completed: true),
+            New("3", "测试流水线", "1", T),          // 未完成但已是今天日期
+        };
+        var (changed, summary) = DayRollover.Run(todos, T);
+        Assert.True(changed);
+        var newRoot = todos.Single(t => t.Text == "工作流" && t.Date == T);
+        Assert.Equal("1", newRoot.RolledFrom);              // 结转链
+        var leaf = todos.Single(t => t.Id == "3");
+        Assert.Equal(newRoot.Id, leaf.Parent);               // 被新根收编
+        Assert.Equal(T, leaf.Date);
+        var old = todos.Single(t => t.Id == "1");
+        Assert.Equal(T, old.RolledAt);
+    }
+
+    [Fact]
+    public void AllLeavesCompleted_NoNewRoot_OnlyArchiveMark()
+    {
+        // 全部子叶已完成：旧根结转留档即可，不建空新根
+        var todos = new List<TodoItem>
+        {
+            New("1", "工作流", null, Y),
+            New("2", "设计", "1", Y, completed: true),
+            New("3", "测试", "1", Y, completed: true),
+        };
+        var (changed, _) = DayRollover.Run(todos, T);
+        Assert.True(changed);
+        Assert.Equal(3, todos.Count);                        // 无新根
+        Assert.Equal(T, todos.Single(t => t.Id == "1").RolledAt);
+    }
 }

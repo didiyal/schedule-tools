@@ -356,9 +356,27 @@ public partial class MainViewModel : ObservableObject
             if (t.Running) { t.Elapsed = LiveElapsed(t); t.Running = false; t.LastStartedAt = null; }
             t.Completed = true;
             t.Date = TodoItem.TodayStr();
+            CompleteRolledFrom(t);   // 结转承接根完成 → 旧日结转根同步翻篇（用户拍板 2026-10-27）
         }
         Rebuild();
         ScheduleSave();
+    }
+
+    /// <summary>沿 rolled_from 链把结转来源的旧根同步置完成（历史快照跟随今日根状态）。</summary>
+    private void CompleteRolledFrom(TodoItem t)
+    {
+        var seen = new HashSet<string>();
+        var cur = t.RolledFrom;
+        while (cur is not null && seen.Add(cur)
+               && _byId.TryGetValue(cur, out var old))
+        {
+            if (!old.Completed)
+            {
+                if (old.Running) { old.Elapsed = LiveElapsed(old); old.Running = false; old.LastStartedAt = null; }
+                old.Completed = true;
+            }
+            cur = old.RolledFrom;   // 链式：连续顺延多天的根一路翻篇
+        }
     }
 
     [RelayCommand]

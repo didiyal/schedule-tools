@@ -41,14 +41,15 @@ public static class DayRollover
             var subtree = TaskTree.SubtreeWithRoot(parents, rootId).Select(id => byId[id]).ToList();
             var hasProgress = subtree.Any(t => t.Completed);
 
-            // 收集全部未完成旧日期节点（含已完成子树下的孙任务），记录各自旧父；
-            // 根自身先入列（无进度时整棵走需要它），有进度分支再剔除（根留档不搬）
+            // 收集全部未完成节点（含已完成子树下的孙任务），记录各自旧父；
+            // 根自身先入列（无进度时整棵走需要它），有进度分支再剔除（根留档不搬）。
+            // 未完成叶不管 date——只要不在今天视角（挂在旧日根下），都该被今天的新根收编
             var carry = new List<(TodoItem Item, string? OldParent)>();
             carry.Add((root, root.Parent));
             void Walk(string id, int depth)
             {
                 var t = byId[id];
-                if (depth > 0 && !t.Completed && string.CompareOrdinal(t.Date, today) < 0)
+                if (depth > 0 && !t.Completed)
                     carry.Add((t, t.Parent));
                 if (chMap.TryGetValue(id, out var kids))
                     foreach (var k in kids) Walk(k, depth + 1);
@@ -68,10 +69,9 @@ public static class DayRollover
                 continue;
             }
 
-            // ── 有进度：旧根留档结转，未完成节点摘到今天的新根 ──
+            // ── 有进度：旧根留档结转，未完成节点全部收编到今天的新根 ──
             carry.RemoveAll(c => c.Item.Id == rootId);       // 根不搬
-            // 有进度的旧根一律结转留档（哪怕未完成叶已全在今天——根留档才有历史）；
-            // 无可搬节点时不再建新根
+            // 有进度的旧根一律结转留档；无未完成叶则只留档、不建新根
             root.RolledAt = root.RolledAt ?? today;
             changes++;
             if (carry.Count == 0) continue;
@@ -82,6 +82,7 @@ public static class DayRollover
                 Text = root.Text,
                 Date = today,
                 Order = nextOrder++,
+                RolledFrom = root.Id,                        // 结转链：完成新根时同步翻篇旧根
             };
             todos.Add(newRoot);
             byId[newRoot.Id] = newRoot;
