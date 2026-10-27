@@ -26,6 +26,12 @@ ssh -p 2222 -i ~/.ssh/shiwujie_server root@47.112.114.139   # 必须走 2222（�
 
 ## 已踩的坑（重要）
 
+0. **同端口多站点抢占（2026-10-27 事故）**：新站点 `oscg-443.conf`（server_name
+   oscg.local）与本项目同抢 443；IP 直连无 SNI 时 nginx 按**字典序**把请求发给
+   第一个 server 块 → oscg 截走全部流量，TodoSync 公网 404、手机钉扎证书失败。
+   修法：todosync-443.conf 标记 `listen 443 ssl default_server;`（无 SNI 兜底）。
+   **以后任何新 443 站点都不许再设 default_server**，且上线前必须
+   `curl -sk https://47.112.114.139/healthz` 验证回归。
 1. **BT 全局 `proxy_cache cache_one`（proxy.conf）会损坏无 Content-Length 的
    POST**——经 443 反代的无 body POST 返回**双重 400 空响应头**（nginx 本体生成，
    不达上游）。修法：todosync-443.conf 的 location 里 `proxy_cache off` +
