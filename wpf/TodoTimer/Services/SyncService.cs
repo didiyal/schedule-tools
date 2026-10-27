@@ -279,6 +279,11 @@ public sealed class SyncService : IDisposable
                 {
                     _state.PushedAtHighWater = Math.Max(_state.PushedAtHighWater, batch.Max(b => b.updatedAt));
                     _state.Seeded = true;            // 本批含存量补推完成，之后回归增量
+                    // 墓碑送达即清账：服务端 200 = 收下（含 LWW 拒收——拒收说明服务端已有
+                    // 相同或更新状态，都算确认）。不能等"拉取见到服务端墓碑"再清——
+                    // 增量拉取只看 since=当前版本，老墓碑永远不再出现在增量里 → 永久重发。
+                    foreach (var b in raw.Where(b => b.Deleted))
+                        _state.Tombstones.Remove(b.Id);
                     SaveState();
                 }
             }
