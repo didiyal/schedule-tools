@@ -44,6 +44,7 @@ class _RootPageState extends State<RootPage> with WidgetsBindingObserver {
   String _localVersion = '';
   String? _docsPath;
   String? _updateVer;   // 服务器有新版本时的版本号（null=已是最新/未连接）
+  final Set<String> _collapsed = {};   // 收起的主任务 id（本地记忆，不进同步契约）
   String _status = '';
   bool _todayOnly = false;
 
@@ -64,12 +65,14 @@ class _RootPageState extends State<RootPage> with WidgetsBindingObserver {
     _localVersion = info.version;
     final engine = SyncEngine(store: LocalStore('${dir.path}/todos.json'), now: _now);
     await engine.loadLocal();
+    _collapsed.addAll(prefs.getStringList('collapsed') ?? const <String>[]);
     if (!mounted) return;
     setState(() {
       _engine = engine;
       _status = server.isEmpty ? '未配置服务器' : '本地 ${engine.todos.length} 条';
     });
     await _notifier.init(onPauseAction: _pauseFromNotification);
+    await _notifier.clearStale(engine.todos);
     _notifier.sync(engine.todos);
     if (server.isNotEmpty && token.isNotEmpty) await _connect(server, token, persist: false);
   }
@@ -87,6 +90,26 @@ class _RootPageState extends State<RootPage> with WidgetsBindingObserver {
   }
 
   static int _now() => DateTime.now().millisecondsSinceEpoch ~/ 1000;
+
+  void _toggleCollapse(String id) async {
+    if (!_collapsed.remove(id)) _collapsed.add(id);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList('collapsed', _collapsed.toList());
+    if (mounted) setState(() {});
+  }
+
+  bool _hasChildren(String id) => _engine!.todos.any((x) => x.parent == id);
+
+  /// 含子任务时长=自身+子树递归（对齐桌面 EffectiveElapsed；主任务不可单独计时）。
+  int _effElapsed(Todo t, [Set<String>? seen]) {
+    seen ??= <String>{};
+    if (!seen.add(t.id)) return t.liveElapsed;
+    var total = t.liveElapsed;
+    for (final c in _engine!.todos.where((x) => x.parent == t.id)) {
+      total += _effElapsed(c, seen);
+    }
+    return total;
+  }
 
   static void _log(String m) => debugPrint('[TodoTimer] $m');
 
@@ -289,6 +312,7 @@ class _RootPageState extends State<RootPage> with WidgetsBindingObserver {
       void emit(Todo t, int depth) {
         out.add(_Row.todo(t, depth));
         if (t.completed) return;
+        if (_collapsed.contains(t.id)) return;   // 已收起：子树不展开
         for (final c in children[t.id] ?? const <Todo>[]) {
           emit(c, depth + 1);
         }
@@ -435,13 +459,15 @@ class _RootPageState extends State<RootPage> with WidgetsBindingObserver {
     );
   }
 
-  /// 任务卡片：根任务白卡+品牌细框+左色条，子任务缩进素卡；
-  /// 完成=灰底删除线；计时中=绿底胶囊等宽数字（桌面三档视觉的移动版简化）。
+  /// 任务卡片 v3：根任务白卡+品牌细框+左色条，子任务缩进素卡；
+  /// 有子任务=折叠箭头+无计时按钮（时长=子树之和，对齐桌面规则）；
+  /// 操作收进右侧「⋯」底部面板（手机屏不适合多按钮，2026-10-28 用户拍板）。
   Widget _taskCard(_Row r) {
     final t = r.todo!;
-    final canHaveChildren = _depthOf(t) < 2 && !t.completed;
     final isRoot = t.parent == null;
     final done = t.completed;
+    final kids = _hasChildren(t.id);
+    final collapsed = _collapsed.contains(t.id);
     return Container(
       margin: EdgeInsets.only(left: r.depth * 18.0, top: 3, bottom: 3),
       decoration: BoxDecoration(
@@ -457,11 +483,20 @@ class _RootPageState extends State<RootPage> with WidgetsBindingObserver {
           Container(
               width: 3,
               height: 34,
-              margin: const EdgeInsets.only(left: 10),
+              margin: const EdgeInsets.only(left: 6),
               decoration: BoxDecoration(
                   color: AppTheme.brand,
                   borderRadius: BorderRadius.circular(2))),
-        const SizedBox(width: 6),
+        const SizedBox(width: 2),
+        if (kids)
+          IconButton(
+              visualDensity: VisualDensity.compact,
+              icon: Icon(collapsed ? Icons.chevron_right : Icons.expand_more,
+                  size: 20, color: AppTheme.textWeak),
+              tooltip: collapsed ? '展开子任务' : '收起子任务',
+              onPressed: () => _toggleCollapse(t.id))
+        else
+          const SizedBox(width: 12),
         SizedBox(
           width: 22,
           child: Checkbox(
@@ -469,7 +504,7 @@ class _RootPageState extends State<RootPage> with WidgetsBindingObserver {
               onChanged: (_) => _toggleDone(t),
               materialTapTargetSize: MaterialTapTargetSize.shrinkWrap),
         ),
-        const SizedBox(width: 4),
+        const SizedBox(width: 2),
         Expanded(
           child: Padding(
             padding: const EdgeInsets.symmetric(vertical: 9),
@@ -507,7 +542,7 @@ class _RootPageState extends State<RootPage> with WidgetsBindingObserver {
                                     ? AppTheme.textMain
                                     : AppTheme.textSub)))),
               ]),
-              if (t.liveElapsed > 0 || t.running) ...[
+              if (_effElapsed(t) > 0 || t.running) ...[
                 const SizedBox(height: 4),
                 if (t.running)
                   Container(
@@ -520,7 +555,7 @@ class _RootPageState extends State<RootPage> with WidgetsBindingObserver {
                         const Icon(Icons.play_arrow,
                             size: 12, color: AppTheme.running),
                         const SizedBox(width: 2),
-                        Text(_fmt(t.liveElapsed),
+                        Text(_fmt(_effElapsed(t)),
                             style: const TextStyle(
                                 fontSize: 11,
                                 fontWeight: FontWeight.w600,
@@ -528,36 +563,89 @@ class _RootPageState extends State<RootPage> with WidgetsBindingObserver {
                                 fontFeatures: [FontFeature.tabularFigures()])),
                       ]))
                 else
-                  Text(_fmt(t.liveElapsed),
+                  Text(_fmt(_effElapsed(t)),
                       style: TextStyle(
                           fontSize: 11,
                           color: AppTheme.textWeak,
                           fontFeatures: [FontFeature.tabularFigures()])),
+                if (kids && !done)
+                  Padding(
+                      padding: const EdgeInsets.only(left: 4),
+                      child: Text(collapsed ? '${_childCount(t)} 个子任务' : '共 ${_childCount(t)} 个子任务',
+                          style: const TextStyle(
+                              fontSize: 10, color: AppTheme.textWeak))),
               ],
             ]),
           ),
         ),
-        IconButton(
-            visualDensity: VisualDensity.compact,
-            icon: Icon(t.running ? Icons.pause_circle : Icons.play_circle,
-                size: 24, color: t.running ? AppTheme.running : AppTheme.brand),
-            tooltip: t.running ? '暂停' : '开始',
-            onPressed: () => _toggleRun(t)),
-        if (canHaveChildren)
+        if (!done)
           IconButton(
               visualDensity: VisualDensity.compact,
-              icon: const Icon(Icons.add_circle_outline,
-                  size: 20, color: AppTheme.textWeak),
-              tooltip: '加子任务',
-              onPressed: () => _addDialog(context, t.id)),
-        IconButton(
-            visualDensity: VisualDensity.compact,
-            icon: const Icon(Icons.delete_outline,
-                size: 19, color: AppTheme.textWeak),
-            tooltip: '删除',
-            onPressed: () => _remove(t)),
-        const SizedBox(width: 4),
+              icon: const Icon(Icons.more_horiz,
+                  size: 22, color: AppTheme.textSub),
+              tooltip: '操作',
+              onPressed: () => _showActions(t)),
+        const SizedBox(width: 2),
       ]),
+    );
+  }
+
+  int _childCount(Todo t) =>
+      _engine!.todos.where((x) => x.parent == t.id).length;
+
+  /// 「⋯」操作面板：计时（仅无子任务）/加子任务/删除——替代原右侧三按钮。
+  void _showActions(Todo t) {
+    final kids = _hasChildren(t.id);
+    final canAdd = _depthOf(t) < 2;
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppTheme.card,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
+      builder: (c) => SafeArea(
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Padding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 4),
+              child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(t.text,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                          color: AppTheme.textMain)))),
+          if (!kids && !t.completed)
+            ListTile(
+                leading: Icon(t.running ? Icons.pause_circle : Icons.play_circle,
+                    color: t.running ? AppTheme.running : AppTheme.brand),
+                title: Text(t.running ? '暂停计时' : '开始计时',
+                    style: const TextStyle(fontSize: 14)),
+                onTap: () {
+                  Navigator.pop(c);
+                  _toggleRun(t);
+                }),
+          if (!t.completed && canAdd)
+            ListTile(
+                leading: const Icon(Icons.subdirectory_arrow_right,
+                    color: AppTheme.textSub),
+                title: const Text('添加子任务',
+                    style: TextStyle(fontSize: 14)),
+                onTap: () {
+                  Navigator.pop(c);
+                  _addDialog(context, t.id);
+                }),
+          ListTile(
+              leading: const Icon(Icons.delete_outline, color: AppTheme.danger),
+              title: const Text('删除',
+                  style: TextStyle(fontSize: 14, color: AppTheme.danger)),
+              onTap: () {
+                Navigator.pop(c);
+                _remove(t);
+              }),
+          const SizedBox(height: 6),
+        ]),
+      ),
     );
   }
 

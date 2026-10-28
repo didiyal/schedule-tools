@@ -14,6 +14,14 @@ const _baseId = 42; // 每个 running 任务占一个槽：_baseId + 序号
 
 String _actionOf(String todoId) => 'pause:$todoId';
 
+/// 通知 id 按任务 id 确定性派生：前台/后台 isolate/App 重启后算出的都是同一个 id，
+/// 暂停后才能准确清掉对应通知（2026-10-28 用户报「通知栏暂停无效」——暂停成功但
+/// 通知清不掉继续走字，看起来就是没停）。
+int _notifIdFor(String todoId) {
+  final n = int.tryParse(todoId);
+  return _baseId + (n ?? (todoId.hashCode & 0xFFFF));
+}
+
 String? _parseAction(String? actionId) =>
     actionId != null && actionId.startsWith('pause:') && actionId.length > 6
         ? actionId.substring(6)
@@ -26,7 +34,6 @@ String? _parseAction(String? actionId) =>
 /// 直接读写 todos.json，尽力直推服务器（失败不阻塞——下次打开 APP 由 LWW 兜底）。
 class RunNotifier {
   void Function(String id)? _onPauseAction;
-  final Map<String, int> _slots = {}; // todoId -> 通知 id（占用中的槽）
   final Map<String, (int?, String)> _shown = {}; // todoId -> (start, text) 同值守卫
 
   Future<void> init({required void Function(String id) onPauseAction}) async {
@@ -55,27 +62,19 @@ class RunNotifier {
   Future<void> sync(List<Todo> todos) async {
     if (defaultTargetPlatform != TargetPlatform.android) return;
     final running = todos.where((t) => t.running && !t.completed).toList();
+    final liveIds = running.map((t) => t.id).toSet();
 
-    // 收回不再 running 的槽位
-    final live = running.map((t) => t.id).toSet();
-    for (final id in _slots.keys.where((k) => !live.contains(k)).toList()) {
-      await _plugin.cancel(_slots.remove(id)!);
-      _shown.remove(id);
+    // 收回不再计时/已删除任务的通知（确定性 id，重启后也有效）
+    for (final id in _shown.keys.toSet()) {
+      if (!liveIds.contains(id)) {
+        await _plugin.cancel(_notifIdFor(id));
+        _shown.remove(id);
+      }
     }
 
-    // 每个任务一条通知（空槽按序分配；同一任务未变不重发）
-    var next = 0;
+    // 每个任务一条通知；同一任务（开始时刻+文本）未变不重发
     for (final t in running) {
-      int notifId;
-      if (_slots.containsKey(t.id)) {
-        notifId = _slots[t.id]!;
-      } else {
-        while (_slots.values.contains(_baseId + next)) {
-          next++;
-        }
-        notifId = _baseId + next;
-        _slots[t.id] = notifId;
-      }
+      final notifId = _notifIdFor(t.id);
       final shown = _shown[t.id];
       if (shown != null && shown == (t.lastStartedAt, t.text)) continue;
       final nowMs = DateTime.now().millisecondsSinceEpoch;
@@ -96,6 +95,14 @@ class RunNotifier {
       );
       await _plugin.show(notifId, '⏱ ${t.text}', '计时中', details);
       _shown[t.id] = (t.lastStartedAt, t.text);
+    }
+  }
+
+  /// App 启动时清残留：重启后 _shown 为空，但通知 id 确定性可算，
+  /// 非 running 任务的旧通知逐个清掉。
+  Future<void> clearStale(List<Todo> todos) async {
+    for (final t in todos) {
+      if (!(t.running && !t.completed)) await _plugin.cancel(_notifIdFor(t.id));
     }
   }
 }
@@ -134,6 +141,6 @@ Future<void> pauseBackground(NotificationResponse r) async {
         api.close();
       } catch (_) {}   // 直推失败不阻塞：本地已停表，下次打开 APP 由 LWW 语义兜底
     }
-    await _plugin.cancel(_baseId); // 兜底清理旧版单通知残留
+    await _plugin.cancel(_notifIdFor(hit.id)); // 清掉该任务的计时通知（通知消失=用户看到的“已暂停”）
   } catch (_) {}
 }
