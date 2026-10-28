@@ -3,6 +3,8 @@
     <uses-permission android:name="android.permission.INTERNET"/>
     <!-- 计时常驻通知（Android 13+ 运行时再请求授权） -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <!-- APP 自更新：下载 APK 后拉起系统安装器需要「安装未知应用」授权 -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
     <application
         android:label="待办计时器"
         android:name="${applicationName}"

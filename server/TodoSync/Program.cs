@@ -76,6 +76,18 @@ app.MapGet("/healthz", () =>
     }
 });
 
+// ── APP 更新包分发（免鉴权，APK 本就公开；路径可 env TODOSYNC_APK 覆盖）──
+// 发布流程见 server/TodoSync/README.md「APP 更新包发布」：scp APK 到该路径即生效。
+var apkPath = Environment.GetEnvironmentVariable("TODOSYNC_APK")
+    ?? Path.Combine(dataDir, "apk", "todo-timer.apk");
+app.MapGet("/api/app/latest", () =>
+{
+    if (!File.Exists(apkPath))
+        return Results.Json(new { error = "no-apk-uploaded" }, statusCode: 404);
+    return Results.File(apkPath, "application/vnd.android.package-archive",
+        fileDownloadName: $"TodoTimer-{Util.AppVersion}.apk");
+});
+
 // ── 配对：配对码（桌面端管理员生成，5 分钟单次有效）→ 设备令牌 ──
 app.MapPost("/api/pair", (PairReq req) =>
 {

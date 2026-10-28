@@ -58,6 +58,13 @@ ssh -p 2222 -i ~/.ssh/shiwujie_server root@47.112.114.139   # 必须走 2222（�
 
 ## 重发流程（改代码后）
 
+> ⚠ 两个实测教训（2026-10-28）：
+> ①**必须带 `-p:PublishSingleFile=true`**——漏了会发布成 apphost+DLL 多文件布局，
+> 只传 TodoSync+libe_sqlite3.so 两个文件 → 服务起不来
+>（`The application to execute does not exist: '.../TodoSync.dll'`），生产中断；
+> ②服务运行中**不能直接 scp 覆盖 EXE**（ETXTBSY：dest open Failure）——
+> 先传 /tmp 再 stop 后原子 mv。以下为修正后流程：
+
 ```bash
 cd server/TodoSync
 export DOTNET_ROOT=D:/dotnet-sdk
@@ -66,9 +73,29 @@ dotnet publish TodoSync.csproj -c Release -r linux-x64 --self-contained true \
 scp -P 2222 -i ~/.ssh/shiwujie_server \
   bin/Release/net8.0/linux-x64/publish/TodoSync \
   bin/Release/net8.0/linux-x64/publish/libe_sqlite3.so \
-  root@47.112.114.139:/www/wwwroot/todosync/
+  root@47.112.114.139:/tmp/
 ssh -p 2222 -i ~/.ssh/shiwujie_server root@47.112.114.139 \
-  'chmod +x /www/wwwroot/todosync/TodoSync && chown -R www:www /www/wwwroot/todosync && systemctl restart todosync && sleep 1 && curl -s http://127.0.0.1:5000/healthz'
+  'systemctl stop todosync && mv /tmp/TodoSync /www/wwwroot/todosync/TodoSync && mv /tmp/libe_sqlite3.so /www/wwwroot/todosync/libe_sqlite3.so && chmod +x /www/wwwroot/todosync/TodoSync && chown -R www:www /www/wwwroot/todosync && systemctl start todosync && sleep 1 && curl -s http://127.0.0.1:5000/healthz'
+# 红线回归：curl -sk https://47.112.114.139/healthz
 ```
 
 数据在 data/ 目录，重发不清数据；证书 10 年有效无需续期。
+
+## APP 更新包发布（v1.4.2 起每版必做）
+
+服务端 `GET /api/app/latest`（免鉴权）下发 `data/apk/todo-timer.apk`；
+healthz 的 `app` 字段 = 最新客户端版本号（`Util.cs` 的 `AppVersion`）。
+APP 连接时比对版本，有新版就在界面顶部出「点此更新」横幅，
+钉扎 TLS 下载后拉起系统安装器。发布步骤：
+
+1. 构建 release APK：`cd app && bash build_apk.sh release`（产物 `tools/build_tmp/TodoTimer-release.apk`）
+2. 版本号对齐：`app/pubspec.yaml` version ↔ `server/TodoSync/Util.cs` AppVersion
+3. APK 上服务端：
+   `scp -P 2222 -i ~/.ssh/shiwujie_server ../../build_tmp/TodoTimer-release.apk root@47.112.114.139:/tmp/tt.apk`
+   再 ssh：`mv /tmp/tt.apk /www/wwwroot/todosync/data/apk/todo-timer.apk && chown www:www /www/wwwroot/todosync/data/apk/todo-timer.apk`
+4. 若 Util.AppVersion 变了 → 走上面「重发流程」重发服务端
+5. 冒烟：healthz 的 app = 新版本；latest 下载字节数与本地 APK 一致
+   （`curl -sk https://47.112.114.139/api/app/latest -o /tmp/dl.apk && ls -la /tmp/dl.apk`）
+
+注意：healthz `app` 只升不降——它同时驱动桌面端更新提示（桌面 1.4.1 起只在
+服务器版本更新时提示，旧服务器不会误报）。

@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -8,6 +9,7 @@ import 'api.dart';
 import 'engine.dart';
 import 'notify.dart';
 import 'todo.dart';
+import 'updater.dart';
 
 void main() {
   runApp(const TodoTimerApp());
@@ -41,6 +43,9 @@ class _RootPageState extends State<RootPage> with WidgetsBindingObserver {
   TodoApi? _api;
   Timer? _poll;
   final _notifier = RunNotifier();
+  String _localVersion = '';
+  String? _docsPath;
+  String? _updateVer;   // 服务器有新版本时的版本号（null=已是最新/未连接）
   String _status = '';
   bool _todayOnly = false;
 
@@ -56,6 +61,9 @@ class _RootPageState extends State<RootPage> with WidgetsBindingObserver {
     final server = prefs.getString('server') ?? '';
     final token = prefs.getString('token') ?? '';
     final dir = await getApplicationDocumentsDirectory();
+    _docsPath = dir.path;
+    final info = await PackageInfo.fromPlatform();
+    _localVersion = info.version;
     final engine = SyncEngine(store: LocalStore('${dir.path}/todos.json'), now: _now);
     await engine.loadLocal();
     if (!mounted) return;
@@ -88,8 +96,8 @@ class _RootPageState extends State<RootPage> with WidgetsBindingObserver {
     final api = TodoApi(server: server, token: token, pinnedSha256: TodoApi.defaultPinnedSha256);
     try {
       _log('connecting $server');
-      final v = await api.healthVersion();
-      _log('healthz ok, server version $v');
+      final h = await api.health();
+      _log('healthz ok, server version ${h.version} app=${h.app}');
       if (persist) {
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString('server', server);
@@ -98,7 +106,8 @@ class _RootPageState extends State<RootPage> with WidgetsBindingObserver {
       if (!mounted) return;
       setState(() {
         _api = api;
-        _status = '已连接（服务器版本 $v）';
+        _status = '已连接（服务器版本 ${h.version}）';
+        _updateVer = Updater.newerVersion(h.app, _localVersion);
       });
       await _syncOnce();
       _poll?.cancel();
@@ -141,6 +150,47 @@ class _RootPageState extends State<RootPage> with WidgetsBindingObserver {
     if (mounted) setState(() {});
     _notifier.sync(_engine!.todos);
     _syncOnce();
+  }
+
+  /// 更新横幅点击：下载更新包（进度对话框）→ 拉起系统安装器。
+  Future<void> _doUpdate() async {
+    final api = _api, ver = _updateVer, docs = _docsPath;
+    if (api == null || ver == null || docs == null) return;
+    final pct = ValueNotifier<int>(0);
+    unawaited(showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (c) => PopScope(
+              canPop: false,
+              child: AlertDialog(
+                title: const Text('下载更新'),
+                content: ValueListenableBuilder<int>(
+                  valueListenable: pct,
+                  builder: (c, v, _) => Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(v == 0 ? '连接服务器…' : '已下载 $v%'),
+                      const SizedBox(height: 12),
+                      LinearProgressIndicator(value: v == 0 ? null : v / 100),
+                    ],
+                  ),
+                ),
+              ),
+            )));
+    try {
+      await Updater.downloadAndInstall(api, ver, docs,
+          onProgress: (r, t) => pct.value = r * 100 ~/ t);
+      if (mounted) {
+        Navigator.of(context, rootNavigator: true).pop();
+        setState(() => _updateVer = null);   // 安装器已拉起，横幅先撤
+      }
+    } catch (e) {
+      if (mounted) {
+        Navigator.of(context, rootNavigator: true).pop();
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('更新失败：$e')));
+      }
+    }
   }
 
   Future<void> _remove(Todo t) async {
@@ -291,6 +341,25 @@ class _RootPageState extends State<RootPage> with WidgetsBindingObserver {
                 alignment: Alignment.centerLeft,
                 child:
                     Text(_status, style: TextStyle(fontSize: 11, color: Colors.grey[600])))),
+        if (_updateVer != null)
+          Material(
+            color: _brand.withValues(alpha: .08),
+            child: InkWell(
+              onTap: _doUpdate,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                child: Row(children: [
+                  const Icon(Icons.system_update, size: 18, color: _brand),
+                  const SizedBox(width: 8),
+                  Expanded(
+                      child: Text('有新版本 $_updateVer，点此更新',
+                          style: const TextStyle(
+                              color: _brand, fontWeight: FontWeight.w600))),
+                  const Icon(Icons.chevron_right, size: 18, color: _brand),
+                ]),
+              ),
+            ),
+          ),
         Expanded(child: _buildList(e)),
       ]),
       floatingActionButton: FloatingActionButton(

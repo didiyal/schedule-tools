@@ -61,13 +61,37 @@ class TodoApi {
     return jsonDecode(text) as Map<String, dynamic>;
   }
 
-  /// 免鉴权健康检查；顺带返回服务器版本号。
-  Future<int> healthVersion() async {
+  /// 免鉴权健康检查：数据版本号 + 最新客户端版本号（APP 自更新用）。
+  Future<({int version, String? app})> health() async {
     final rq = await _http().getUrl(Uri.parse('$_base/healthz'));
     final rs = await rq.close().timeout(const Duration(seconds: 15));
     final body = await rs.transform(utf8.decoder).join();
     if (rs.statusCode != 200) throw ApiException(rs.statusCode, body);
-    return (jsonDecode(body) as Map<String, dynamic>)['version'] as int;
+    final d = jsonDecode(body) as Map<String, dynamic>;
+    return (version: d['version'] as int, app: d['app'] as String?);
+  }
+
+  /// 下载最新 APP 更新包到 [savePath]（TLS 钉扎与业务请求一致）。
+  Future<void> downloadApk(String savePath,
+      {void Function(int received, int total)? onProgress}) async {
+    final rq = await _http().getUrl(Uri.parse('$_base/api/app/latest'));
+    final rs = await rq.close().timeout(const Duration(seconds: 300));
+    if (rs.statusCode != 200) throw ApiException(rs.statusCode, '下载更新包失败');
+    final total = rs.contentLength;
+    final tmp = '$savePath.tmp';
+    final sink = File(tmp).openWrite();
+    var received = 0;
+    try {
+      await for (final chunk in rs) {
+        received += chunk.length;
+        sink.add(chunk);
+        if (onProgress != null && total > 0) onProgress(received, total);
+      }
+      await sink.flush();
+    } finally {
+      await sink.close();
+    }
+    await File(tmp).rename(savePath);
   }
 
   /// since=0 即全量（含墓碑）。
