@@ -59,8 +59,14 @@ public sealed class SyncService : IDisposable
         { Timeout = TimeSpan.FromSeconds(15) };
     }
 
-    private bool ValidatePin(HttpRequestMessage req, X509Certificate2? cert,
-        X509Chain? chain, SslPolicyErrors errors)
+    private bool ValidatePin(HttpRequestMessage req, X509Certificate? cert,
+        X509Chain? chain, SslPolicyErrors errors) => ValidatePinCert(cert);
+
+    /// <summary>WebSocket 回调（sender 参数是 object，不是 HttpRequestMessage）。</summary>
+    private bool ValidatePin(object sender, X509Certificate? cert,
+        X509Chain? chain, SslPolicyErrors errors) => ValidatePinCert(cert);
+
+    private bool ValidatePinCert(X509Certificate? cert)
     {
         var pin = _state.PinnedFingerprint;
         if (string.IsNullOrEmpty(pin)) return true;   // 未钉：放行（设置对话框首次连接时钉上）
@@ -405,6 +411,7 @@ public sealed class SyncService : IDisposable
     public void StartChangeSocket(Func<List<TodoItem>> getTodos)
     {
         _getTodos = getTodos;
+        Log($"ws: start enabled={_state.Enabled} token={(_state.AdminToken.Length > 8 ? _state.AdminToken[..8] : "")}… server={_state.Server}");
         _ = ChangeSocketLoopAsync();
     }
 
@@ -422,6 +429,7 @@ public sealed class SyncService : IDisposable
             }
             if (!enabled || _getTodos is null || _wsCts is null)
             {
+                Log($"ws: skip enabled={enabled} getTodos={(_getTodos is not null)} cts={(_wsCts is not null)}");
                 await Task.Delay(5000);
                 continue;
             }
@@ -429,9 +437,13 @@ public sealed class SyncService : IDisposable
             {
                 using var ws = new System.Net.WebSockets.ClientWebSocket();
                 ws.Options.SetRequestHeader("Authorization", "Bearer " + token);
+                // ClientWebSocket 不读 HttpClient 的证书回调——钉扎校验要挂在
+                // WS 自己的 RemoteCertificateValidationCallback（ValidatePin 同款）
+                ws.Options.RemoteCertificateValidationCallback = ValidatePin;
                 var uri = new Uri(server.Replace("https://", "wss://") + "/api/ws");
+                Log($"ws: connecting {uri}");
                 await ws.ConnectAsync(uri, _wsCts.Token);
-                Log("ws: connected");
+                Log($"ws: connected state={ws.State}");
                 var buf = new byte[4096];
                 using var pingCts = new CancellationTokenSource();
                 var ping = Task.Run(async () =>
@@ -461,9 +473,10 @@ public sealed class SyncService : IDisposable
                 }
                 pingCts.Cancel();
                 try { await ping; } catch { /* ping 循环取消 */ }
+                Log("ws: loop exit (closed/broken)");
             }
             catch (OperationCanceledException) { return; }   // 应用退出
-            catch { }
+            catch (Exception ex) { Log("ws: error " + TrimErr(ex)); }
             await Task.Delay(10000);   // 断线重连
         }
     }
