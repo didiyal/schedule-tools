@@ -64,10 +64,12 @@ class RunNotifier {
     final running = todos.where((t) => t.running && !t.completed).toList();
     final liveIds = running.map((t) => t.id).toSet();
 
-    // 收回不再计时/已删除任务的通知（确定性 id，重启后也有效）
+    // 收回不再计时/已删除任务的通知（确定性 id，重启后也有效）；
+    // cancel 失败不阻塞后续 show（2026-10-28 实测：_plugin.cancel 偶发
+    // PlatformException 把 sync 挂掉，导致其它任务的通知也不刷新）
     for (final id in _shown.keys.toSet()) {
       if (!liveIds.contains(id)) {
-        await _plugin.cancel(_notifIdFor(id));
+        try { await _plugin.cancel(_notifIdFor(id)); } catch (_) {}
         _shown.remove(id);
       }
     }
