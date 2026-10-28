@@ -46,11 +46,34 @@ public partial class MainViewModel : ObservableObject
         Sync.InitFingerprints(_file.Todos);
         Sync.StatusChanged += s => System.Windows.Application.Current?.Dispatcher
             .BeginInvoke(() => SyncStatus = s);
+        Sync.UpdateAvailable += v => System.Windows.Application.Current?.Dispatcher
+            .BeginInvoke(() => UpdateVersion = v);
         SyncStatus = Sync.Status.Length > 0 ? Sync.Status
             : (Sync.SnapshotState().Enabled ? "" : "云同步未开启，点此配置");
     }
 
     [ObservableProperty] private string syncStatus = "";
+    [ObservableProperty] private string? updateVersion;      // 服务器广播的新版本号（null=已是最新）
+    [ObservableProperty] private string updateProgress = ""; // 横幅上的下载进度文案
+    public bool HasUpdate => UpdateVersion != null;
+    partial void OnUpdateVersionChanged(string? value) => OnPropertyChanged(nameof(HasUpdate));
+
+    /// <summary>更新横幅点击：下载桌面安装包（服务器分发）→ 静默安装 → Inno 自动重启新版。</summary>
+    [RelayCommand]
+    private async Task DownloadUpdateAsync()
+    {
+        if (Sync is null || UpdateVersion is null) return;
+        try
+        {
+            await Sync.DownloadDesktopUpdateAsync(UpdateVersion,
+                s => System.Windows.Application.Current?.Dispatcher
+                    .BeginInvoke(() => UpdateProgress = s));
+        }
+        catch (Exception ex)
+        {
+            UpdateProgress = "更新失败：" + ex.Message;
+        }
+    }
 
     /// <summary>便携语义同 Python：打包版读 EXE 旁 data/；开发构建读仓库 data/。</summary>
     public static string ResolveDataDir()

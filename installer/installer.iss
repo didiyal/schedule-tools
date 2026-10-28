@@ -10,7 +10,7 @@
 ;   * 升级前 taskkill 新旧两个 EXE 名 (托盘常驻占用), 卸载时可选保留数据
 
 #define MyAppName      "待办计时器"
-#define MyAppVersion   "1.4.5"
+#define MyAppVersion   "1.4.6"
 #define MyAppExeName   "TodoTimer.exe"
 #define MyAppLegacyExe "待办计时器.exe"
 
@@ -82,6 +82,16 @@ begin
   Exec(ExpandConstant('{cmd}'), '/C taskkill /IM "{#MyAppExeName}" /F', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Exec(ExpandConstant('{cmd}'), '/C taskkill /IM "{#MyAppLegacyExe}" /F', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Result := True;
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+var
+  ResultCode: Integer;
+begin
+  // 静默升级（桌面端应用内「下载更新」）装完自动重启新版本；
+  // 交互安装不受影响，仍走「立即启动」勾选框。
+  if (CurStep = ssPostInstall) and WizardSilent then
+    Exec(ExpandConstant('{app}\{#MyAppExeName}'), '', '', SW_SHOW, ewNoWait, ResultCode);
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);

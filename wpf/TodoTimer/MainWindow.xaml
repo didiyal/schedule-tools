@@ -4,6 +4,32 @@
         Title="待办计时器 1.4" Height="680" Width="520" MinWidth="480"
         Background="{StaticResource Brush.WindowBg}" FontFamily="Microsoft YaHei UI">
     <DockPanel>
+        <!-- 更新横幅：服务器广播新版本时置顶出现，点击下载静默升级并自动重启 -->
+        <Border DockPanel.Dock="Top" Background="#E7EFFB" Padding="12,7">
+            <Border.Style>
+                <Style TargetType="Border">
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding HasUpdate}" Value="False">
+                            <Setter Property="Visibility" Value="Collapsed"/>
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </Border.Style>
+            <Button Style="{StaticResource BtnPrimary}" HorizontalAlignment="Stretch"
+                    HorizontalContentAlignment="Left" Padding="10,6"
+                    Command="{Binding DownloadUpdateCommand}">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="&#xE896;" FontFamily="{StaticResource IconFont}" FontSize="14"
+                               VerticalAlignment="Center"/>
+                    <TextBlock VerticalAlignment="Center" Margin="8,0,0,0">
+                        <Run Text="有新版本 "/><Run Text="{Binding UpdateVersion, Mode=OneWay}"
+                            FontWeight="Bold"/>
+                        <Run Text="{Binding UpdateProgress, Mode=OneWay}"/>
+                        <Run Text="   点击下载安装，自动重启"/>
+                    </TextBlock>
+                </StackPanel>
+            </Button>
+        </Border>
         <!-- 顶部：筛选 + 搜索 -->
         <Border DockPanel.Dock="Top" Background="{StaticResource Brush.Surface}" Padding="12,9,12,7">
             <DockPanel>

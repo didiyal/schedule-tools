@@ -88,6 +88,18 @@ app.MapGet("/api/app/latest", () =>
         fileDownloadName: $"TodoTimer-{Util.AppVersion}.apk");
 });
 
+// ── 桌面端安装包分发（免鉴权，同 APK 模式；env TODOSYNC_DESKTOP_PKG 可覆盖）──
+// 桌面端更新横幅点「下载」即拉此文件，静默安装后自动重启。
+var desktopPkgPath = Environment.GetEnvironmentVariable("TODOSYNC_DESKTOP_PKG")
+    ?? Path.Combine(dataDir, "desktop", "TodoTimer-Setup.exe");
+app.MapGet("/api/app/desktop", () =>
+{
+    if (!File.Exists(desktopPkgPath))
+        return Results.Json(new { error = "no-desktop-package" }, statusCode: 404);
+    return Results.File(desktopPkgPath, "application/octet-stream",
+        fileDownloadName: $"TodoTimer_Setup-{Util.AppVersion}.exe");
+});
+
 // ── 配对：配对码（桌面端管理员生成，5 分钟单次有效）→ 设备令牌 ──
 app.MapPost("/api/pair", (PairReq req) =>
 {

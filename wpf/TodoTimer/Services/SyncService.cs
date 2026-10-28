@@ -43,6 +43,8 @@ public sealed class SyncService : IDisposable
     /// <summary>合并落库后回调（VM：Rebuild+Save）。在 Poll 的调用线程触发。</summary>
     public event Action? Merged;
     public event Action<string>? StatusChanged;
+    /// <summary>服务器广播的版本比本地新时触发（参数=新版本号）。VM：显示顶部更新横幅。</summary>
+    public event Action<string>? UpdateAvailable;
     public string Status { get; private set; } = "";
 
     public SyncService(string dataDir)
@@ -334,6 +336,7 @@ public sealed class SyncService : IDisposable
                 {
                     _updateHintShown = true;
                     SetStatus($"服务器有新版本 {serverApp}，建议更新桌面端");
+                    UpdateAvailable?.Invoke(serverApp);
                 }
             }
             var todos = getTodos();
@@ -389,6 +392,46 @@ public sealed class SyncService : IDisposable
     }
 
     private Task<bool> EnterAsync() => Task.FromResult(Enter());
+
+    /// <summary>
+    /// 下载桌面安装包（服务器 /api/app/desktop，钉扎证书与业务请求一致）并静默安装。
+    /// 安装器 InitializeSetup 会 taskkill 本进程，安装完成由 Inno [Code] 自动重启新版本。
+    /// </summary>
+    public async Task DownloadDesktopUpdateAsync(string version, Action<string>? progress = null)
+    {
+        using var http = new HttpClient(new HttpClientHandler
+        {
+            ServerCertificateCustomValidationCallback = ValidatePin,
+        })
+        { Timeout = TimeSpan.FromMinutes(10) };   // 49MB 安装包，默认 15s 拉不完
+        using var rq = new HttpRequestMessage(HttpMethod.Get, $"{_state.Server}/api/app/desktop");
+        using var rs = await http.SendAsync(rq, HttpCompletionOption.ResponseHeadersRead);
+        if ((int)rs.StatusCode == 404)
+            throw new InvalidOperationException("服务器暂无桌面安装包");
+        rs.EnsureSuccessStatusCode();
+        var total = rs.Content.Headers.ContentLength ?? 0;
+        var path = Path.Combine(Path.GetTempPath(), $"TodoTimer_Setup_{version}.exe");
+        var tmp = path + ".downloading";
+        await using (var fs = new FileStream(tmp, FileMode.Create, FileAccess.Write))
+        {
+            var buffer = new byte[81920];
+            int read;
+            long received = 0;
+            var stream = rs.Content.ReadAsStream();
+            while ((read = await stream.ReadAsync(buffer)) > 0)
+            {
+                await fs.WriteAsync(buffer.AsMemory(0, read));
+                received += read;
+                if (total > 0) progress?.Invoke($"下载中 {received * 100 / total}%");
+            }
+        }
+        File.Move(tmp, path, overwrite: true);
+        progress?.Invoke("启动安装…");
+        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(path)
+        {
+            UseShellExecute = true,   // 安装器自己 taskkill 本进程后继续装，装完自动重启新版
+        });
+    }
 
     private void Exit() { lock (_gate) _busy = false; }
 
