@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:ui' show FontFeature;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -78,8 +80,12 @@ class _RootPageState extends State<RootPage> with WidgetsBindingObserver {
     await _notifier.clearStale(engine.todos);
     _notifier.sync(engine.todos);
     if (server.isNotEmpty && token.isNotEmpty) {
+      _log('boot: saved server=$server token=${token.substring(0, token.length > 8 ? 8 : token.length)}… → auto-reconnect');
       _autoReconnect(server, token, attempts: 0);
+    } else {
+      _log('boot: no saved config (server="$server" token len=${token.length})');
     }
+    _startVibrateTick();
   }
 
   /// 启动自动重连：移动网络冷启动/自签握手偶发超时，失败后 10s 重试（最多 5 次）。
@@ -90,6 +96,31 @@ class _RootPageState extends State<RootPage> with WidgetsBindingObserver {
     setState(() => _status = '自动重连中…（${attempts + 1}/5）');
     Future.delayed(const Duration(seconds: 10),
         () => _autoReconnect(server, token, attempts: attempts + 1));
+  }
+
+  Timer? _vibrateTick;   // 半小时提醒
+
+  /// 计时中每半小时震动提醒（2026-10-29 用户需求）：只要还有任务在跑，
+  /// 每 30 分钟短震两下。启动时把首个触发点对齐到「当前 running 任务的
+  /// lastStartedAt + 30min 的整数倍」，之后每 30min 一轮。
+  void _startVibrateTick() {
+    _vibrateTick?.cancel();
+    _vibrateTick = Timer.periodic(const Duration(minutes: 30), (_) {
+      final e = _engine;
+      if (e == null || !e.todos.any((t) => t.running && !t.completed)) return;
+      _vibrate();
+      _log('vibrate: 30min reminder');
+    });
+  }
+
+  Future<void> _vibrate() async {
+    try {
+      if (defaultTargetPlatform != TargetPlatform.android) return;
+      const channel = MethodChannel('todo_timer/vibrate');
+      await channel.invokeMethod('vibrate', {'pattern': [0, 200, 150, 200]});
+    } catch (e) {
+      _log('vibrate failed: $e');
+    }
   }
 
   /// 通知栏「暂停」动作（前台路径）：停表固化并走 _write 上行。

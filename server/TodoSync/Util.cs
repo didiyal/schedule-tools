@@ -8,7 +8,7 @@ public static class Util
 {
     /// <summary>本服务端配套的客户端版本——客户端 /healthz 或 /api/changes 比对，
     /// 不一致时提示有新版本。发新版时与桌面 AppInfo.Version 同步改。</summary>
-    public const string AppVersion = "1.4.9";
+    public const string AppVersion = "1.5.0";
 
     /// <summary>"tds_" 前缀 + 32 字节随机数 base64url。</summary>
     public static string NewToken()
