@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
@@ -32,7 +34,8 @@ class RunNotifier {
     try {
       final android = _plugin.resolvePlatformSpecificImplementation<
           AndroidFlutterLocalNotificationsPlugin>();
-      await android?.requestNotificationsPermission();   // Android 13+，已授权则 no-op
+      // 不等待授权结果——系统弹窗挂起会阻塞 init 的调用方（boot 里的连接流程）
+      unawaited(android?.requestNotificationsPermission());
     } catch (_) {}
   }
 
