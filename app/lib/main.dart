@@ -18,7 +18,6 @@ void main() {
 }
 
 const _brand = AppTheme.brand;
-const _green = AppTheme.running;
 
 class TodoTimerApp extends StatelessWidget {
   const TodoTimerApp({super.key});
@@ -382,79 +381,183 @@ class _RootPageState extends State<RootPage> with WidgetsBindingObserver {
     final rows = _rows();
     if (rows.isEmpty) {
       return Center(
-          child: Text(e.todos.isEmpty ? '暂无任务' : '（视图下无任务）',
-              style: TextStyle(color: Colors.grey[500])));
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Container(
+            width: 64,
+            height: 64,
+            decoration:
+                const BoxDecoration(color: AppTheme.brandBg, shape: BoxShape.circle),
+            child: Icon(
+                e.todos.isEmpty
+                    ? Icons.check_circle_outline
+                    : Icons.filter_alt_off,
+                size: 30,
+                color: AppTheme.brand),
+          ),
+          const SizedBox(height: 12),
+          Text(e.todos.isEmpty ? '还没有任务，点右下角「新建」开始' : '当前视图下没有任务',
+              style: const TextStyle(color: AppTheme.textWeak, fontSize: 13)),
+        ]),
+      );
     }
     return RefreshIndicator(
+      color: AppTheme.brand,
       onRefresh: _syncOnce,
       child: ListView.builder(
+        padding: const EdgeInsets.fromLTRB(12, 2, 12, 96),
         itemCount: rows.length,
         itemBuilder: (context, i) {
           final r = rows[i];
           if (r.isHeader) {
-            return Container(
-                padding: const EdgeInsets.fromLTRB(16, 14, 16, 4),
-                alignment: Alignment.centerLeft,
-                child: Text(r.header!,
-                    style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.grey[600])));
+            return Padding(
+              padding: const EdgeInsets.fromLTRB(6, 16, 6, 6),
+              child: r.isToday
+                  ? Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+                      decoration: BoxDecoration(
+                          color: AppTheme.brand,
+                          borderRadius: BorderRadius.circular(999)),
+                      child: Text(r.header!,
+                          style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.white)))
+                  : Text(r.header!,
+                      style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: AppTheme.textWeak)),
+            );
           }
-          final t = r.todo!;
-          final canHaveChildren = _depthOf(t) < 2 && !t.completed;
-          return ListTile(
-            contentPadding: EdgeInsets.only(left: 16 + r.depth * 20.0, right: 8),
-            leading: Checkbox(
-                value: t.completed,
-                onChanged: (_) => _toggleDone(t),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4))),
-            title: Row(children: [
-              if (t.rolledAt != null)
-                Padding(
-                    padding: const EdgeInsets.only(right: 5),
-                    child: Text('已结转',
-                        style: TextStyle(fontSize: 10, color: Colors.grey[400]))),
-              Expanded(
-                  child: Text(t.text,
-                      style: TextStyle(
-                          fontSize: 14,
-                          decoration:
-                              t.completed ? TextDecoration.lineThrough : null,
-                          color: t.completed
-                              ? Colors.grey
-                              : (t.parent == null ? null : Colors.black87)))),
-            ]),
-            subtitle: t.liveElapsed > 0 || t.running
-                ? Text(_fmt(t.liveElapsed),
-                    style: TextStyle(fontSize: 11, color: t.running ? _green : Colors.grey))
-                : null,
-            trailing: SizedBox(
-                width: 118,
-                child: Row(mainAxisSize: MainAxisSize.min, children: [
-                  if (t.starred) const Icon(Icons.star, size: 15, color: Color(0xFFF5A623)),
-                  if (canHaveChildren)
-                    IconButton(
-                        icon: const Icon(Icons.add_circle_outline, size: 20),
-                        tooltip: '加子任务',
-                        onPressed: () => _addDialog(context, t.id)),
-                  IconButton(
-                      icon: Icon(
-                          t.running
-                              ? Icons.pause_circle_outline
-                              : Icons.play_circle_outline,
-                          size: 22,
-                          color: t.running ? _green : Colors.grey),
-                      tooltip: t.running ? '暂停' : '开始',
-                      onPressed: () => _toggleRun(t)),
-                  IconButton(
-                      icon: const Icon(Icons.delete_outline, size: 20, color: Colors.grey),
-                      tooltip: '删除',
-                      onPressed: () => _remove(t)),
-                ])),
-          );
+          return _taskCard(r);
         },
       ),
+    );
+  }
+
+  /// 任务卡片：根任务白卡+品牌细框+左色条，子任务缩进素卡；
+  /// 完成=灰底删除线；计时中=绿底胶囊等宽数字（桌面三档视觉的移动版简化）。
+  Widget _taskCard(_Row r) {
+    final t = r.todo!;
+    final canHaveChildren = _depthOf(t) < 2 && !t.completed;
+    final isRoot = t.parent == null;
+    final done = t.completed;
+    return Container(
+      margin: EdgeInsets.only(left: r.depth * 18.0, top: 3, bottom: 3),
+      decoration: BoxDecoration(
+        color: done ? AppTheme.bg : AppTheme.card,
+        borderRadius: BorderRadius.circular(AppTheme.radius),
+        border: isRoot && !done
+            ? Border.all(color: AppTheme.brandBorder)
+            : Border.all(color: AppTheme.divider),
+        boxShadow: const [AppTheme.cardShadow],
+      ),
+      child: Row(children: [
+        if (isRoot && !done)
+          Container(
+              width: 3,
+              height: 34,
+              margin: const EdgeInsets.only(left: 10),
+              decoration: BoxDecoration(
+                  color: AppTheme.brand,
+                  borderRadius: BorderRadius.circular(2))),
+        const SizedBox(width: 6),
+        SizedBox(
+          width: 22,
+          child: Checkbox(
+              value: t.completed,
+              onChanged: (_) => _toggleDone(t),
+              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap),
+        ),
+        const SizedBox(width: 4),
+        Expanded(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 9),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Row(children: [
+                if (t.starred)
+                  const Padding(
+                      padding: EdgeInsets.only(right: 4),
+                      child: Icon(Icons.star, size: 14, color: AppTheme.star)),
+                if (t.rolledAt != null)
+                  Container(
+                      margin: const EdgeInsets.only(right: 5),
+                      padding:
+                          const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                      decoration: BoxDecoration(
+                          color: AppTheme.bg,
+                          borderRadius: BorderRadius.circular(4)),
+                      child: const Text('已结转',
+                          style: TextStyle(
+                              fontSize: 10, color: AppTheme.textWeak))),
+                Expanded(
+                    child: Text(t.text,
+                        maxLines: 3,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                            fontSize: 14,
+                            fontWeight:
+                                isRoot ? FontWeight.w600 : FontWeight.w400,
+                            height: 1.3,
+                            decoration:
+                                done ? TextDecoration.lineThrough : null,
+                            color: done
+                                ? AppTheme.doneText
+                                : (isRoot
+                                    ? AppTheme.textMain
+                                    : AppTheme.textSub)))),
+              ]),
+              if (t.liveElapsed > 0 || t.running) ...[
+                const SizedBox(height: 4),
+                if (t.running)
+                  Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 7, vertical: 2),
+                      decoration: BoxDecoration(
+                          color: AppTheme.runningBg,
+                          borderRadius: BorderRadius.circular(999)),
+                      child: Row(mainAxisSize: MainAxisSize.min, children: [
+                        const Icon(Icons.play_arrow,
+                            size: 12, color: AppTheme.running),
+                        const SizedBox(width: 2),
+                        Text(_fmt(t.liveElapsed),
+                            style: const TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                                color: AppTheme.running,
+                                fontFeatures: [FontFeature.tabularFigures()])),
+                      ]))
+                else
+                  Text(_fmt(t.liveElapsed),
+                      style: TextStyle(
+                          fontSize: 11,
+                          color: AppTheme.textWeak,
+                          fontFeatures: [FontFeature.tabularFigures()])),
+              ],
+            ]),
+          ),
+        ),
+        IconButton(
+            visualDensity: VisualDensity.compact,
+            icon: Icon(t.running ? Icons.pause_circle : Icons.play_circle,
+                size: 24, color: t.running ? AppTheme.running : AppTheme.brand),
+            tooltip: t.running ? '暂停' : '开始',
+            onPressed: () => _toggleRun(t)),
+        if (canHaveChildren)
+          IconButton(
+              visualDensity: VisualDensity.compact,
+              icon: const Icon(Icons.add_circle_outline,
+                  size: 20, color: AppTheme.textWeak),
+              tooltip: '加子任务',
+              onPressed: () => _addDialog(context, t.id)),
+        IconButton(
+            visualDensity: VisualDensity.compact,
+            icon: const Icon(Icons.delete_outline,
+                size: 19, color: AppTheme.textWeak),
+            tooltip: '删除',
+            onPressed: () => _remove(t)),
+        const SizedBox(width: 4),
+      ]),
     );
   }
 
