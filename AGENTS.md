@@ -42,6 +42,12 @@ python todo_cli.py move <id> YYYY-MM-DD | rename <id> "新文本" | star <id> [-
 python todo_cli.py reparent <id> (--parent 父id | --top)   # 移动整枝, 成环/超3层拒绝
 ```
 
+**权威 CLI = 装机版完整路径**（repo 里的 `installer/publish/` 与 `wpf/**/bin/` 副本各读各的 data，会返回空/旧数据，勿用于操作真实数据）：
+
+```powershell
+& "$env:LOCALAPPDATA\Programs\待办计时器\TodoTimer.exe" cli list --json
+```
+
 打包版等价：`待办计时器.exe cli list --json`。写命令 GUI 在线走 IPC(即时上屏)，GUI 运行中但 IPC 不可达时拒绝写文件(防覆盖)。`--json` 供 Agent 解析（扁平列表含 `parent`/`depth`，可自行重建树；树形缩进用 `--tree`）。
 ## 必守规则
 

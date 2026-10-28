@@ -87,6 +87,12 @@ public static class CliRunner
 
     private static TodoFile Load()
     {
+        // 数据文件不存在 ≠ 空库：多半是跑错了副本（打包中间产物/开发版各读各的 data），
+        // 静默空列表没法诊断 —— 在 stderr 指明实际用的数据目录与权威 CLI 路径（2026-10-28 用户报「cli list 返回空」）。
+        if (!File.Exists(SavePath))
+            Err($"提示: 数据文件不存在: {SavePath}\n" +
+                "打包版读 EXE 旁 data/，开发构建读仓库 data/ —— 操作真实数据请用装机版:\n" +
+                "  \"%LOCALAPPDATA%\\Programs\\待办计时器\\TodoTimer.exe\" cli <命令>");
         var file = TodoStore.Load(SavePath) ?? new TodoFile();
         var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         foreach (var t in file.Todos)

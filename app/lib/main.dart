@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' show FontFeature;
 
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -8,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'api.dart';
 import 'engine.dart';
 import 'notify.dart';
+import 'theme.dart';
 import 'todo.dart';
 import 'updater.dart';
 
@@ -15,8 +17,8 @@ void main() {
   runApp(const TodoTimerApp());
 }
 
-const _brand = Color(0xFF3370FF);
-const _green = Color(0xFF2BA245);
+const _brand = AppTheme.brand;
+const _green = AppTheme.running;
 
 class TodoTimerApp extends StatelessWidget {
   const TodoTimerApp({super.key});
@@ -24,10 +26,7 @@ class TodoTimerApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) => MaterialApp(
         title: '待办计时器',
-        theme: ThemeData(
-          colorScheme: ColorScheme.fromSeed(seedColor: _brand),
-          useMaterial3: true,
-        ),
+        theme: AppTheme.light(),
         home: const RootPage(),
       );
 }
@@ -287,7 +286,7 @@ class _RootPageState extends State<RootPage> with WidgetsBindingObserver {
       final roots =
           (children[null] ?? const <Todo>[]).where((t) => t.date == d).toList();
       if (roots.isEmpty) continue;
-      out.add(_Row.header(d == today ? '今日 · ${roots.length} 项' : d));
+      out.add(_Row.header(d == today ? '今日 · ${roots.length} 项' : d, isToday: d == today));
       void emit(Todo t, int depth) {
         out.add(_Row.todo(t, depth));
         if (t.completed) return;
@@ -336,34 +335,46 @@ class _RootPageState extends State<RootPage> with WidgetsBindingObserver {
       ),
       body: Column(children: [
         Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            padding: const EdgeInsets.fromLTRB(16, 6, 16, 4),
             child: Align(
                 alignment: Alignment.centerLeft,
-                child:
-                    Text(_status, style: TextStyle(fontSize: 11, color: Colors.grey[600])))),
+                child: Text(_status,
+                    style: const TextStyle(
+                        fontSize: 11, color: AppTheme.textWeak,
+                        fontFeatures: [FontFeature.tabularFigures()])))),
         if (_updateVer != null)
-          Material(
-            color: _brand.withValues(alpha: .08),
-            child: InkWell(
-              onTap: _doUpdate,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                child: Row(children: [
-                  const Icon(Icons.system_update, size: 18, color: _brand),
-                  const SizedBox(width: 8),
-                  Expanded(
-                      child: Text('有新版本 $_updateVer，点此更新',
-                          style: const TextStyle(
-                              color: _brand, fontWeight: FontWeight.w600))),
-                  const Icon(Icons.chevron_right, size: 18, color: _brand),
-                ]),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 0, 12, 4),
+            child: Material(
+              color: AppTheme.brandBg,
+              borderRadius: BorderRadius.circular(10),
+              child: InkWell(
+                onTap: _doUpdate,
+                borderRadius: BorderRadius.circular(10),
+                child: const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  child: Row(children: [
+                    Icon(Icons.system_update, size: 18, color: AppTheme.brand),
+                    SizedBox(width: 8),
+                    Expanded(
+                        child: Text('发现新版本，点此更新',
+                            style: TextStyle(
+                                color: AppTheme.brandDeep,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600))),
+                    Icon(Icons.chevron_right, size: 18, color: AppTheme.brand),
+                  ]),
+                ),
               ),
             ),
           ),
         Expanded(child: _buildList(e)),
       ]),
-      floatingActionButton: FloatingActionButton(
-          onPressed: () => _addDialog(context, null), child: const Icon(Icons.add)),
+      floatingActionButton: FloatingActionButton.extended(
+          onPressed: () => _addDialog(context, null),
+          icon: const Icon(Icons.add, size: 20),
+          label: const Text('新建',
+              style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14))),
     );
   }
 
@@ -519,10 +530,11 @@ class _RootPageState extends State<RootPage> with WidgetsBindingObserver {
 }
 
 class _Row {
-  _Row.todo(this.todo, this.depth) : isHeader = false, header = null;
-  _Row.header(this.header) : isHeader = true, todo = null, depth = 0;
+  _Row.todo(this.todo, this.depth) : isHeader = false, header = null, isToday = false;
+  _Row.header(this.header, {this.isToday = false}) : isHeader = true, todo = null, depth = 0;
   final bool isHeader;
   final String? header;
+  final bool isToday;
   final Todo? todo;
   final int depth;
 }
