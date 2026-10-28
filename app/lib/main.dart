@@ -7,6 +7,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'api.dart';
+import 'changesocket.dart';
 import 'engine.dart';
 import 'notify.dart';
 import 'theme.dart';
@@ -41,6 +42,8 @@ class _RootPageState extends State<RootPage> with WidgetsBindingObserver {
   TodoApi? _api;
   Timer? _poll;
   final _notifier = RunNotifier();
+  ChangeSocket? _changeSocket;
+  bool _syncing = false;   // WS 门铃+30s 心跳+手动刷新并发去重
   String _localVersion = '';
   String? _docsPath;
   String? _updateVer;   // 服务器有新版本时的版本号（null=已是最新/未连接）
@@ -133,6 +136,11 @@ class _RootPageState extends State<RootPage> with WidgetsBindingObserver {
       await _syncOnce();
       _poll?.cancel();
       _poll = Timer.periodic(const Duration(seconds: 30), (_) => _syncOnce());
+      // 变更门铃：服务端同空间有变更时秒级广播，收到即拉（30s 心跳降级为兜底）
+      _changeSocket?.dispose();
+      _changeSocket = ChangeSocket(
+          server: server, token: token, onChanged: () => _syncOnce());
+      _changeSocket!.connect();
     } catch (e) {
       _log('connect failed: $e');
       if (!mounted) return;
@@ -147,6 +155,8 @@ class _RootPageState extends State<RootPage> with WidgetsBindingObserver {
   Future<void> _syncOnce() async {
     final api = _api, engine = _engine;
     if (api == null || engine == null) return;
+    if (_syncing) return;   // WS 门铃与心跳并发去重（合并/落盘非重入安全）
+    _syncing = true;
     try {
       final r = await engine.round(
           (items) => api.pushItems(items),
@@ -164,6 +174,8 @@ class _RootPageState extends State<RootPage> with WidgetsBindingObserver {
       _log('sync failed: $e');
       if (!mounted) return;
       setState(() => _status = '同步失败：$e');
+    } finally {
+      _syncing = false;
     }
   }
 

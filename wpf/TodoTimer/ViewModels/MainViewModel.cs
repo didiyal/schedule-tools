@@ -48,6 +48,7 @@ public partial class MainViewModel : ObservableObject
             .BeginInvoke(() => SyncStatus = s);
         Sync.UpdateAvailable += v => System.Windows.Application.Current?.Dispatcher
             .BeginInvoke(() => UpdateVersion = v);
+        Sync.StartChangeSocket(() => _file.Todos);
         SyncStatus = Sync.Status.Length > 0 ? Sync.Status
             : (Sync.SnapshotState().Enabled ? "" : "云同步未开启，点此配置");
     }

@@ -7,6 +7,8 @@
 //   · 全局递增 version（meta 表），每次接受变更批次 +1；拉增量 = WHERE version > since。
 //   · 部署形态：Kestrel 只听 127.0.0.1:5000，TLS 由宿主 Nginx(443) 终结（自签+客户端钉证书）。
 //   · 数据访问在 Store.cs，通用工具在 Util.cs——本文件只有装配与 HTTP 路由。
+using System.Net.WebSockets;
+using System.Text;
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using TodoSync;
@@ -32,6 +34,35 @@ var gate = new object();   // 单用户低并发，全局写锁即可，SQLite W
 var builder = WebApplication.CreateBuilder(args);
 builder.Logging.SetMinimumLevel(LogLevel.Warning);
 var app = builder.Build();
+
+// ── WebSocket 变更门铃（v1.4.7）──
+// WS 只广播"有变化+版本号"，数据本体仍走 GET /api/changes 增量拉——合并逻辑零重写。
+// 连接按空间分组；POST /api/changes 接受变更后向同空间在线端广播（fire-and-forget）。
+var wsLock = new object();
+var wsClients = new List<(string Space, WebSocket Socket)>();
+
+void BroadcastChange(string space, long version)
+{
+    byte[] payload;
+    try { payload = Encoding.UTF8.GetBytes("{\"type\":\"change\",\"version\":" + version + "}"); }
+    catch { return; }
+    List<System.Net.WebSockets.WebSocket> targets;
+    lock (wsLock)
+        targets = wsClients.Where(c => c.Space == space).Select(c => c.Socket).ToList();
+    foreach (var sock in targets)
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                if (sock.State == WebSocketState.Open)
+                    await sock.SendAsync(new ArraySegment<byte>(payload),
+                        WebSocketMessageType.Text, true, CancellationToken.None);
+            }
+            catch { /* 死连接由接收循环清理 */ }
+        });
+}
+
+app.UseWebSockets();
 
 // ── 鉴权 ──
 static string? Bearer(HttpRequest req)
@@ -66,6 +97,7 @@ IResult? AuthSpace(HttpContext ctx, out string space)
     return Results.Json(new { error = "unauthorized" }, statusCode: 401);
 }
 
+
 // ── 健康检查（免鉴权，无敏感信息）──
 app.MapGet("/healthz", () =>
 {
@@ -98,6 +130,44 @@ app.MapGet("/api/app/desktop", () =>
         return Results.Json(new { error = "no-desktop-package" }, statusCode: 404);
     return Results.File(desktopPkgPath, "application/octet-stream",
         fileDownloadName: $"TodoTimer_Setup-{Util.AppVersion}.exe");
+});
+
+// WS 入口：鉴权同 REST（Bearer 头）；客户端每 25s 发 ping 保活（nginx read_timeout 60s）
+app.Map("/api/ws", async (HttpContext ctx) =>
+{
+    string? space;
+    var t = Bearer(ctx.Request);
+    if (IsAdmin(t)) space = DefaultSpace;
+    else if (t is not null && t.Length >= 16)
+    {
+        using var db = Store.OpenDb(dbPath);
+        space = Store.TouchDeviceSpace(db, Util.Sha256Hex(t), Util.Now());
+    }
+    else space = null;
+    if (space is null) { ctx.Response.StatusCode = 401; return; }
+    if (!ctx.WebSockets.IsWebSocketRequest) { ctx.Response.StatusCode = 400; return; }
+
+    var ws = await ctx.WebSockets.AcceptWebSocketAsync();
+    lock (wsLock) wsClients.Add((space, ws));
+    var buf = new byte[4096];
+    try
+    {
+        while (ws.State == WebSocketState.Open)
+        {
+            var res = await ws.ReceiveAsync(new ArraySegment<byte>(buf), CancellationToken.None);
+            if (res.MessageType == WebSocketMessageType.Close)
+            {
+                await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, null, CancellationToken.None);
+                break;
+            }
+            // 客户端 ping 帧直接忽略（收包本身即保活）
+        }
+    }
+    catch { }
+    finally
+    {
+        lock (wsLock) wsClients.RemoveAll(c => c.Socket == ws);
+    }
 });
 
 // ── 配对：配对码（桌面端管理员生成，5 分钟单次有效）→ 设备令牌 ──
@@ -146,6 +216,7 @@ app.MapPost("/api/changes", (HttpContext ctx, ChangesReq? req) =>
         {
             Store.SetVersion(db, ver);
             tx.Commit();
+            BroadcastChange(space, ver);   // 同空间在线端秒级收到变更门铃
         }
         return Results.Json(new { version = Store.GetVersion(db), accepted });
     }

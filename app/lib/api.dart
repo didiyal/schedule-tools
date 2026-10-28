@@ -24,11 +24,14 @@ class TodoApi {
 
   HttpClient _http() => _client ??= HttpClient()
     ..connectionTimeout = const Duration(seconds: 15)
-    ..badCertificateCallback = (cert, host, port) {
-      final pin = pinnedSha256;
-      if (pin == null || pin.isEmpty) return false;   // 未配置指纹绝不放行自签
-      return _fp(sha256.convert(cert.der).bytes) == _normalize(pin);
-    };
+    ..badCertificateCallback = (cert, host, port) => verifyCert(cert, pinnedSha256);
+
+  /// 自签证书钉扎校验（HTTP 与 WebSocket 共用；未配置指纹绝不放行）。
+  static bool verifyCert(dynamic cert, String? pinnedSha256) {
+    final pin = pinnedSha256;
+    if (pin == null || pin.isEmpty) return false;
+    return _fp(sha256.convert(cert.der).bytes) == _normalize(pin);
+  }
 
   /// 无冒号大写 hex（与 _normalize 输出同格式）。
   static String _fp(List<int> bytes) =>

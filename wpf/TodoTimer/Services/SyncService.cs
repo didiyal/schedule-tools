@@ -393,6 +393,81 @@ public sealed class SyncService : IDisposable
 
     private Task<bool> EnterAsync() => Task.FromResult(Enter());
 
+    private Func<List<TodoItem>>? _getTodos;
+    private CancellationTokenSource? _wsCts = new();
+
+    /// <summary>
+    /// 变更门铃 WebSocket（v1.4.7）：服务端同空间有变更时秒级广播，
+    /// 收到即触发一轮先拉后推的完整同步——30s 心跳降级为兜底。
+    /// 断线 10s 自动重连；每 25s 发 ping 保活（nginx read_timeout 60s）。
+    /// VM 在 AttachSync 时调用一次。
+    /// </summary>
+    public void StartChangeSocket(Func<List<TodoItem>> getTodos)
+    {
+        _getTodos = getTodos;
+        _ = ChangeSocketLoopAsync();
+    }
+
+    private async Task ChangeSocketLoopAsync()
+    {
+        while (true)
+        {
+            bool enabled;
+            string server, token;
+            lock (_gate)
+            {
+                enabled = _state.Enabled;
+                server = _state.Server;
+                token = _state.AdminToken;
+            }
+            if (!enabled || _getTodos is null || _wsCts is null)
+            {
+                await Task.Delay(5000);
+                continue;
+            }
+            try
+            {
+                using var ws = new System.Net.WebSockets.ClientWebSocket();
+                ws.Options.SetRequestHeader("Authorization", "Bearer " + token);
+                var uri = new Uri(server.Replace("https://", "wss://") + "/api/ws");
+                await ws.ConnectAsync(uri, _wsCts.Token);
+                Log("ws: connected");
+                var buf = new byte[4096];
+                using var pingCts = new CancellationTokenSource();
+                var ping = Task.Run(async () =>
+                {
+                    var pingBuf = Encoding.UTF8.GetBytes("ping");
+                    while (!pingCts.IsCancellationRequested
+                           && ws.State == System.Net.WebSockets.WebSocketState.Open)
+                    {
+                        await Task.Delay(25000, pingCts.Token);
+                        await ws.SendAsync(new ArraySegment<byte>(pingBuf),
+                            System.Net.WebSockets.WebSocketMessageType.Text,
+                            true, CancellationToken.None);
+                    }
+                }, CancellationToken.None);
+                while (ws.State == System.Net.WebSockets.WebSocketState.Open
+                       && !_wsCts.IsCancellationRequested)
+                {
+                    var res = await ws.ReceiveAsync(new ArraySegment<byte>(buf),
+                        _wsCts.Token);
+                    if (res.MessageType == System.Net.WebSockets.WebSocketMessageType.Close) break;
+                    var text = Encoding.UTF8.GetString(buf, 0, res.Count);
+                    if (text.Contains("\"change\""))
+                    {
+                        Log("ws: change notify → poll");
+                        _ = PollNowAsync(() => _getTodos!());
+                    }
+                }
+                pingCts.Cancel();
+                try { await ping; } catch { /* ping 循环取消 */ }
+            }
+            catch (OperationCanceledException) { return; }   // 应用退出
+            catch { }
+            await Task.Delay(10000);   // 断线重连
+        }
+    }
+
     /// <summary>
     /// 下载桌面安装包（服务器 /api/app/desktop，钉扎证书与业务请求一致）并静默安装。
     /// 安装器 InitializeSetup 会 taskkill 本进程，安装完成由 Inno [Code] 自动重启新版本。
