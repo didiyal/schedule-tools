@@ -155,8 +155,10 @@ class _RootPageState extends State<RootPage> with WidgetsBindingObserver {
       _notifier.sync(engine.todos);   // 远端启停/改名后通知跟随
       if (!mounted) return;
       setState(() {
-        _status = '已同步 ${TimeOfDay.now().format(context)}'
-            '${engine.hasPending || r.pushed > 0 ? '（上行 ${r.pushed} 条）' : ''}';
+        _status = r.pushFailed
+            ? '推送失败，本地改动待重试'
+            : '已同步 ${TimeOfDay.now().format(context)}'
+                '${engine.hasPending || r.pushed > 0 ? '（上行 ${r.pushed} 条）' : ''}';
       });
     } catch (e) {
       _log('sync failed: $e');

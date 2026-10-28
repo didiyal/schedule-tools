@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'api.dart';
 import 'todo.dart';
 
 /// 手机端同步引擎（v1.5 S3）：
@@ -74,24 +75,45 @@ class SyncEngine {
       Future<({int accepted, int version})> Function(List<Map<String, dynamic>>) push,
       Future<({int version, List<Map<String, dynamic>> items})> Function({required int since}) pull) async {
     var pushed = 0;
+    var pushFailed = false;
     if (_pending.isNotEmpty) {
+      // 推送时抬时间戳到当下（对齐桌面 BumpChanged 语义）：本地编辑可能在
+      // 队列里滞留（离线/重试），秒级 LWW 下旧戳会被服务端更新的条目拒收，
+      // 条目被静默丢弃 → 用户改动丢失（2026-10-28 用户报：手机暂停后电脑端不更新）
+      final now = this.now();
+      for (final it in _pending) {
+        it['updatedAt'] = now;
+        (it['json'] as Map<String, dynamic>)['updated_at'] = now;
+      }
       final batch = List<Map<String, dynamic>>.from(_pending);
-      final r = await push(batch);
-      _pending.removeRange(0, batch.length);
-      pushed = r.accepted;
-      if (r.version > serverVersion) serverVersion = r.version;
+      try {
+        final r = await push(batch);
+        _pending.removeRange(0, batch.length);
+        pushed = r.accepted;
+        if (r.version > serverVersion) serverVersion = r.version;
+      } on ApiException {
+        rethrow;   // 鉴权类错误照常上抛（状态行要如实显示）
+      } catch (_) {
+        pushFailed = true;   // 网络类失败：不阻塞拉取，队列保留待下轮重试
+      }
     }
     final d = await pull(since: serverVersion);
     final changed = mergeRemote(d.items);
     serverVersion = d.version;
     await saveLocal();
-    return SyncRoundResult(pushed: pushed, merged: changed, version: serverVersion);
+    return SyncRoundResult(pushed: pushed, merged: changed,
+        version: serverVersion, pushFailed: pushFailed);
   }
 }
 
 class SyncRoundResult {
-  SyncRoundResult({required this.pushed, required this.merged, required this.version});
+  SyncRoundResult(
+      {required this.pushed,
+      required this.merged,
+      required this.version,
+      this.pushFailed = false});
   final int pushed;
   final bool merged;
   final int version;
+  final bool pushFailed;   // 推送网络失败但拉取成功（队列保留重试）
 }
