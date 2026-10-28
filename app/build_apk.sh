@@ -20,6 +20,8 @@ FLUTTER="D:/Development/flutter/bin/flutter.bat"
 MODE=${1:-debug}   # debug | release
 BUILD_ROOT=/d/Development/appbuild
 
+BUILD_MARK=$(date +%s)
+
 if [ "$MODE" = "release" ]; then
   # release 的 Dart AOT（gen_snapshot）吃不了中文路径：整项目复制到 ASCII 路径构建
   rm -rf "$BUILD_ROOT/src/app"
@@ -35,5 +37,25 @@ fi
 
 DST="../build_tmp/TodoTimer-$MODE.apk"
 mkdir -p ../build_tmp
+
+# 防陈旧包上传（2026-10-28 实测：Gradle 真失败时旧 APK 仍在原位，脚本会拿旧包当新包传）——
+# 构建后 SRC 未刷新（mtime 早于构建开始）则报错退出，不覆盖本地产物、不上服务器
+if [ ! -f "$SRC" ] || [ "$(stat -c %Y "$SRC")" -lt "$BUILD_MARK" ]; then
+  echo "[BUILD][ERROR] 未产出新 APK（Gradle 真失败），保留旧产物不上传" >&2
+  exit 1
+fi
 cp -f "$SRC" "$DST"
 echo "APK => $(realpath "$DST")"
+
+# 5) release 自动上服务器（2026-10-28 用户指令）：scp 到 /api/app/latest 分发路径，
+#    手机端 30s 内出更新横幅。失败只警告不阻断（可手动按 server/TodoSync/README.md「APP 更新包发布」补传）。
+if [ "$MODE" = "release" ] && [ -f "$DST" ]; then
+  if scp -P 2222 -i ~/.ssh/shiwujie_server -o ConnectTimeout=10 "$DST" root@47.112.114.139:/tmp/tt.apk 2>/dev/null; then
+    ssh -p 2222 -i ~/.ssh/shiwujie_server -o ConnectTimeout=10 root@47.112.114.139 '
+      mkdir -p /www/wwwroot/todosync/data/apk &&
+      mv -f /tmp/tt.apk /www/wwwroot/todosync/data/apk/todo-timer.apk &&
+      chown www:www /www/wwwroot/todosync/data/apk/todo-timer.apk'       && echo "[upload] APK 已上服务器，手机端将收到更新横幅"       || echo "[upload][WARN] 服务器端 mv 失败，手动补传"
+  else
+    echo "[upload][WARN] scp 失败（服务器不可达？），APK 仅存本地 $DST"
+  fi
+fi
