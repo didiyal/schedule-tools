@@ -6,6 +6,9 @@
 - **v1.4**（2026-10-26）：Python/customtkinter → C#/.NET 8 + WPF 全量重写（动机：渲染性能）
 - **v1.5**（2026-10-27）：架构分离——TodoSync 服务端 + 桌面同步模块 + 安卓 APP；
   每日顺延（跨日自动结转）+ 补卡语义 + 服务端空间隔离；首个安装包发布
+- **v1.4.1**（2026-10-28）：修同步合并后新条目操作失效（手机建的任务电脑端
+  无法加入面板，重启才好）+ 结转任务保留重点标识 + 面板改名不更新 +
+  安卓 APP 计时常驻通知栏（可暂停）+ release 包 INTERNET 权限修复
 
 ## 功能
 
@@ -49,7 +52,7 @@ ASP.NET Core 8 + SQLite 同步枢纽：设备令牌鉴权、配对码、增量 A
 ## 使用（桌面端）
 
 - 安装包：**[GitHub Releases](https://github.com/didiyal/schedule-tools/releases)**
-  下载 `TodoTimer_Setup_1.4.0.exe`（self-contained 零依赖，按用户安装免管理员，
+  下载 `TodoTimer_Setup_1.4.1.exe`（self-contained 零依赖，按用户安装免管理员，
   原地升级自动继承数据）；开发运行：`cd wpf && dotnet run`
 - 数据在 **EXE 同目录 `data/`**（todos.json + archive.json + syncstate.json，便携）
 - 快捷键：Tab/Shift+Tab 层级、Delete 删整枝、Ctrl+Z 整枝恢复、Ctrl+Q 退出、双击加面板

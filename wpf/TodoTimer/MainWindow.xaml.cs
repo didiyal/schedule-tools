@@ -276,6 +276,7 @@ public partial class MainWindow : Window
         row.Todo.Text = text;
         _vm.Rebuild();
         _vm.Save();
+        (Application.Current as App)?.PanelRefreshNow();
     }
 
     private void MenuAddChild_Click(object sender, RoutedEventArgs e)

@@ -1,6 +1,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- release 包 INTERNET 必须显式声明（debug 清单自动带，release 不带——2026-10-28 手机端连接失败根因） -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- 计时常驻通知（Android 13+ 运行时再请求授权） -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <application
-        android:label="todo_timer"
+        android:label="待办计时器"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity

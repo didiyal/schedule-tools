@@ -78,20 +78,28 @@ public partial class TimerPanelWindow : Window
     }
 
     private readonly ObservableCollection<PanelItemVm> _items = new();
-    private string? _lastIds;
+    private string? _lastSig;
 
-    /// <summary>成员变化才重建（对比可见 id 序列）；时间由 1s tick 写 TimeText 绑定。</summary>
+    /// <summary>
+    /// 成员或内容变化才重建（id+文本+星+完成+运行 内容签名）；时间由 1s tick 写 TimeText。
+    /// 只比 id 的话改名/星标不更新——TodoItem 无 INPC，内容变化只能整建（2026-10-28 用户报）。
+    /// </summary>
     public void RefreshItems()
     {
-        var ids = string.Join(',', _vm.PanelTodos.Select(t => t.Id));
-        if (ids == _lastIds) return;
+        var sig = Signature(_vm.PanelTodos);
+        if (sig == _lastSig) return;
         RebuildItems();
     }
+
+    /// <summary>内容签名：id/文本/星/完成/运行（分隔符用 ASCII，避免注入控制字符的坑）。</summary>
+    private static string Signature(IEnumerable<TodoItem> todos)
+        => string.Join("|", todos.Select(t =>
+            string.Join("~", t.Id, t.Text, t.Starred ? 1 : 0, t.Completed ? 1 : 0, t.Running ? 1 : 0)));
 
     private void RebuildItems()
     {
         var todos = _vm.PanelTodos.ToList();
-        _lastIds = string.Join(',', todos.Select(t => t.Id));
+        _lastSig = Signature(todos);
         _items.Clear();
         foreach (var t in todos)
             _items.Add(new PanelItemVm(t) { TimeText = Format(_vm.EffectiveElapsed(t)) });

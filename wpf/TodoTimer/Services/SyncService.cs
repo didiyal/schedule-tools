@@ -323,7 +323,7 @@ public sealed class SyncService : IDisposable
             if (root.TryGetProperty("app", out var appEl))
             {
                 var serverApp = appEl.GetString();
-                if (!string.IsNullOrEmpty(serverApp) && serverApp != Models.AppInfo.Version
+                if (!string.IsNullOrEmpty(serverApp) && IsNewerVersion(serverApp, Models.AppInfo.Version)
                     && !_updateHintShown)
                 {
                     _updateHintShown = true;
@@ -369,6 +369,15 @@ public sealed class SyncService : IDisposable
             _busy = true;
             return true;
         }
+    }
+
+    /// <summary>服务器版本号是否比本地新（语义化比较；解析失败退回「不相等」）。</summary>
+    internal static bool IsNewerVersion(string server, string local)
+    {
+        if (server == local) return false;
+        if (Version.TryParse(server, out var s) && Version.TryParse(local, out var l))
+            return s > l;
+        return true;
     }
 
     private Task<bool> EnterAsync() => Task.FromResult(Enter());

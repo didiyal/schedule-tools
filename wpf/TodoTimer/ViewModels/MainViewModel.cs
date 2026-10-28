@@ -39,9 +39,9 @@ public partial class MainViewModel : ObservableObject
     public void AttachSync()
     {
         Sync ??= new Services.SyncService(DataDir);
-        // 合并发生在后台线程（改 _file.Todos 引用内容），必须回 UI 线程再 Rebuild+Save
+        // 合并发生在后台线程（改 _file.Todos 引用内容），必须回 UI 线程再重建索引+Rebuild+Save
         Sync.Merged += () => System.Windows.Application.Current?.Dispatcher
-            .BeginInvoke(() => { Rebuild(); Save(); });
+            .BeginInvoke(() => { AbsorbRemoteChanges(); Rebuild(); Save(); });
         // 首次登记指纹（已有状态则保留），避免把存量数据误判为新改动
         Sync.InitFingerprints(_file.Todos);
         Sync.StatusChanged += s => System.Windows.Application.Current?.Dispatcher
@@ -101,6 +101,23 @@ public partial class MainViewModel : ObservableObject
     {
         _byId = new Dictionary<string, TodoItem>();
         foreach (var t in _file.Todos) _byId[t.Id] = t;
+    }
+
+    /// <summary>
+    /// 云同步合并后吸收远端变化：重建 _byId 索引 + 刷新 id/order 高水位。
+    /// 不重建索引的话，远端新增条目不在 _byId 里——右键/计时面板/勾选/删除全部
+    /// 静默失效直到重启（2026-10-28 用户报：手机新建任务电脑端无法加入面板）；
+    /// 不刷高水位的话，两端「最大数字 id + 1」造号会撞号（手机建的 170 与桌面
+    /// 本地新建的 170 同 id 互覆）。
+    /// </summary>
+    public void AbsorbRemoteChanges()
+    {
+        RebuildIndex();
+        foreach (var t in _file.Todos)
+        {
+            if (int.TryParse(t.Id, out var n) && n > _nextId) _nextId = n;
+            if (t.Order >= _nextOrder) _nextOrder = t.Order + 1;
+        }
     }
 
     private Dictionary<string, string?> ParentMap()

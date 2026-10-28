@@ -186,4 +186,35 @@ public class DayRolloverTests
         Assert.Equal(3, todos.Count);                        // 无新根
         Assert.Equal(T, todos.Single(t => t.Id == "1").RolledAt);
     }
+
+    [Fact]
+    public void StarredRoot_PartialDone_NewRootKeepsStar()
+    {
+        // 重点根结转：今天的新承接根保留重点标识（2026-10-28 用户报）
+        var todos = new List<TodoItem>
+        {
+            new() { Id = "1", Text = "标书", Parent = null, Date = Y, Starred = true },
+            New("2", "A", "1", Y),
+            New("3", "B", "1", Y, completed: true),
+        };
+        var (changed, _) = DayRollover.Run(todos, T);
+        Assert.True(changed);
+        var newRoot = todos.Single(t => t.Text == "标书" && t.Date == T);
+        Assert.True(newRoot.Starred);
+        Assert.False(todos.Single(t => t.Id == "2").Starred);           // 未标记的叶不受牵连
+    }
+
+    [Fact]
+    public void StarredRoot_NoProgress_WholeTreeKeepsStar()
+    {
+        // 无进度整棵顺延=同一批对象改期，重点天然保留（回归保护）
+        var todos = new List<TodoItem>
+        {
+            new() { Id = "1", Text = "写周报", Parent = null, Date = Y, Starred = true },
+            new() { Id = "2", Text = "查数据", Parent = "1", Date = Y, Starred = true },
+        };
+        var (changed, _) = DayRollover.Run(todos, T);
+        Assert.True(changed);
+        Assert.All(todos, t => Assert.True(t.Starred));
+    }
 }

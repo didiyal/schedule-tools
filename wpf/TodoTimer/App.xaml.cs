@@ -193,6 +193,9 @@ public partial class App : Application
         main.Activate();
     }
 
+    /// <summary>面板内容立即重查（改名/星标等改完即刷，不等 2s tick）。</summary>
+    public void PanelRefreshNow() => _panel?.RefreshItems();
+
     public void TogglePanel()
     {
         if (MainWindow is not MainWindow main) return;

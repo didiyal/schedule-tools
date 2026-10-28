@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'api.dart';
 import 'engine.dart';
+import 'notify.dart';
 import 'todo.dart';
 
 void main() {
@@ -39,6 +40,7 @@ class _RootPageState extends State<RootPage> with WidgetsBindingObserver {
   SyncEngine? _engine;
   TodoApi? _api;
   Timer? _poll;
+  final _notifier = RunNotifier();
   String _status = '';
   bool _todayOnly = false;
 
@@ -61,7 +63,21 @@ class _RootPageState extends State<RootPage> with WidgetsBindingObserver {
       _engine = engine;
       _status = server.isEmpty ? '未配置服务器' : '本地 ${engine.todos.length} 条';
     });
+    await _notifier.init(onPauseAction: _pauseFromNotification);
+    _notifier.sync(engine.todos);
     if (server.isNotEmpty && token.isNotEmpty) await _connect(server, token, persist: false);
+  }
+
+  /// 通知栏「暂停」动作（前台路径）：停表固化并走 _write 上行。
+  void _pauseFromNotification(String id) {
+    final e = _engine;
+    if (e == null) return;
+    final t = e.todos.where((x) => x.id == id).firstOrNull;
+    if (t == null || !t.running) return;
+    t.elapsed = t.liveElapsed;
+    t.running = false;
+    t.lastStartedAt = null;
+    _write(t);
   }
 
   static int _now() => DateTime.now().millisecondsSinceEpoch ~/ 1000;
@@ -106,6 +122,7 @@ class _RootPageState extends State<RootPage> with WidgetsBindingObserver {
           (items) => api.pushItems(items),
           ({required int since}) => api.changes(since: since));
       _log('sync ok: pushed=${r.pushed} merged=${r.merged} version=${r.version}');
+      _notifier.sync(engine.todos);   // 远端启停/改名后通知跟随
       if (!mounted) return;
       setState(() {
         _status = '已同步 ${TimeOfDay.now().format(context)}'
@@ -122,6 +139,7 @@ class _RootPageState extends State<RootPage> with WidgetsBindingObserver {
     _engine!.touch(t);
     await _engine!.saveLocal();
     if (mounted) setState(() {});
+    _notifier.sync(_engine!.todos);
     _syncOnce();
   }
 

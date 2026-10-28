@@ -82,6 +82,7 @@ public static class DayRollover
                 Text = root.Text,
                 Date = today,
                 Order = nextOrder++,
+                Starred = root.Starred,                      // 重点标识跟任务走（2026-10-28 用户报）
                 RolledFrom = root.Id,                        // 结转链：完成新根时同步翻篇旧根
             };
             todos.Add(newRoot);
