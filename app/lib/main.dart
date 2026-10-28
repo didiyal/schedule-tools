@@ -77,7 +77,19 @@ class _RootPageState extends State<RootPage> with WidgetsBindingObserver {
     await _notifier.init(onPauseAction: _pauseFromNotification);
     await _notifier.clearStale(engine.todos);
     _notifier.sync(engine.todos);
-    if (server.isNotEmpty && token.isNotEmpty) await _connect(server, token, persist: false);
+    if (server.isNotEmpty && token.isNotEmpty) {
+      _autoReconnect(server, token, attempts: 0);
+    }
+  }
+
+  /// 启动自动重连：移动网络冷启动/自签握手偶发超时，失败后 10s 重试（最多 5 次）。
+  /// 配置本身在 SharedPreferences 里没丢——不能把"暂时连不上"显示成"要重新设置"。
+  Future<void> _autoReconnect(String server, String token, {required int attempts}) async {
+    final ok = await _connect(server, token, persist: false);
+    if (ok || attempts >= 4 || !mounted) return;
+    setState(() => _status = '自动重连中…（${attempts + 1}/5）');
+    Future.delayed(const Duration(seconds: 10),
+        () => _autoReconnect(server, token, attempts: attempts + 1));
   }
 
   /// 通知栏「暂停」动作（前台路径）：停表固化并走 _write 上行。
@@ -116,7 +128,7 @@ class _RootPageState extends State<RootPage> with WidgetsBindingObserver {
 
   static void _log(String m) => debugPrint('[TodoTimer] $m');
 
-  Future<void> _connect(String server, String token, {required bool persist}) async {
+  Future<bool> _connect(String server, String token, {required bool persist}) async {
     final api = TodoApi(server: server, token: token, pinnedSha256: TodoApi.defaultPinnedSha256);
     try {
       _log('connecting $server');
@@ -127,7 +139,7 @@ class _RootPageState extends State<RootPage> with WidgetsBindingObserver {
         await prefs.setString('server', server);
         await prefs.setString('token', token);
       }
-      if (!mounted) return;
+      if (!mounted) return true;
       setState(() {
         _api = api;
         _status = '已连接（服务器版本 ${h.version}）';
@@ -141,14 +153,16 @@ class _RootPageState extends State<RootPage> with WidgetsBindingObserver {
       _changeSocket = ChangeSocket(
           server: server, token: token, onChanged: () => _syncOnce());
       _changeSocket!.connect();
+      return true;
     } catch (e) {
       _log('connect failed: $e');
-      if (!mounted) return;
-      setState(() => _status = '连接失败：$e');
+      if (!mounted) return false;
+      setState(() => _status = '连接失败：$e（配置已保存，稍后自动重试）');
       if (persist) {
         ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text('连接失败：$e')));
       }
+      return false;
     }
   }
 
