@@ -10,7 +10,7 @@
 ;   * 升级前 taskkill 新旧两个 EXE 名 (托盘常驻占用), 卸载时可选保留数据
 
 #define MyAppName      "待办计时器"
-#define MyAppVersion   "1.4.4"
+#define MyAppVersion   "1.4.5"
 #define MyAppExeName   "TodoTimer.exe"
 #define MyAppLegacyExe "待办计时器.exe"
 

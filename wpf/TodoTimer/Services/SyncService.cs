@@ -177,13 +177,17 @@ public sealed class SyncService : IDisposable
         StatusChanged?.Invoke(s);
     }
 
-    /// <summary>存盘钩子：检测变更并推送（后台，不阻塞 UI）。</summary>
+    /// <summary>
+    /// 存盘钩子：触发一轮完整同步（后台，不阻塞 UI）。
+    /// 必须走 PollNowAsync（先拉后推）而不是直接 PushCoreAsync——直接推会把
+    /// 【尚未合并手机端改动】的本地状态推上去盖掉远端（2026-10-28 用户报根因之一）。
+    /// _busy 守卫保证突发连存只有一轮在跑；最后一轮若赶不上末次保存，
+    /// 改动仍会被指纹标记、由 30s 心跳兜底补推。
+    /// </summary>
     public void OnSaved(Func<List<TodoItem>> getTodos)
         => Task.Run(async () =>
         {
-            if (!await EnterAsync()) return;
-            try { await PushCoreAsync(getTodos()); }
-            finally { Exit(); }
+            await PollNowAsync(getTodos);
         });
 
     /// <summary>
@@ -307,8 +311,10 @@ public sealed class SyncService : IDisposable
                 if (!_state.Enabled) { Exit(); return; }
                 ver = since = _state.ServerVersion;
             }
-            // 先对账上行（覆盖 CLI 删除、合并剔除等不触发 Save 的路径）
-            await PushCoreAsync(getTodos(), quietWhenIdle: true);
+            // 先拉后推（2026-10-28 用户报「手机暂停后电脑端不更新」根因）：
+            // 旧顺序=先推后拉——本地保存会立即把【未合并手机端改动】的陈旧状态推上服务器，
+            // 把手机端刚写的暂停/勾选盖掉。改为先拉合并远端最新，再推本地净变更。
+            // 行末的无条件 push 仍覆盖「CLI 删除、合并剔除等不触发 Save 的路径」对账。
             lock (_gate) since = _state.ServerVersion;
             using var req = new HttpRequestMessage(HttpMethod.Get,
                 $"{_state.Server}/api/changes?since={since}");
@@ -352,6 +358,8 @@ public sealed class SyncService : IDisposable
                 SaveState();
             }
             if (changed) Merged?.Invoke();   // VM 重建 + Save（Save→OnSaved 推回流，LWW 防回卷）
+            // 合并远端之后再推本地净变更（先拉后推的“推”）：保证推上去的状态已含手机端最新改动
+            await PushCoreAsync(getTodos(), quietWhenIdle: true);
             SetStatus($"已同步 {DateTime.Now:HH:mm:ss}");
         }
         catch (Exception ex)
