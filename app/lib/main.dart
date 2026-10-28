@@ -152,9 +152,15 @@ class _RootPageState extends State<RootPage> with WidgetsBindingObserver {
     }
   }
 
-  Future<void> _syncOnce() async {
+  Future<void> _syncOnce({bool tellUser = false}) async {
+    _log('syncOnce tapped api=${_api != null} engine=${_engine != null} _syncing=$_syncing');
     final api = _api, engine = _engine;
-    if (api == null || engine == null) return;
+    if (api == null || engine == null) {
+      if (tellUser && mounted)
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('未配置服务器，先到设置里连接')));
+      return;
+    }
     if (_syncing) return;   // WS 门铃与心跳并发去重（合并/落盘非重入安全）
     _syncing = true;
     try {
@@ -170,10 +176,19 @@ class _RootPageState extends State<RootPage> with WidgetsBindingObserver {
             : '已同步 ${TimeOfDay.now().format(context)}'
                 '${engine.hasPending || r.pushed > 0 ? '（上行 ${r.pushed} 条）' : ''}';
       });
+      if (tellUser) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(r.pushFailed
+                ? '推送失败，本地改动待重试'
+                : '已同步 ${engine.todos.length} 条任务')));
+      }
     } catch (e) {
       _log('sync failed: $e');
       if (!mounted) return;
       setState(() => _status = '同步失败：$e');
+      if (tellUser)
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('同步失败：$e')));
     } finally {
       _syncing = false;
     }
@@ -366,7 +381,10 @@ class _RootPageState extends State<RootPage> with WidgetsBindingObserver {
               tooltip: '只看今日',
               onPressed: () => setState(() => _todayOnly = !_todayOnly),
               color: _todayOnly ? _brand : null),
-          IconButton(icon: const Icon(Icons.sync), tooltip: '立即同步', onPressed: _syncOnce),
+          IconButton(
+              icon: const Icon(Icons.sync),
+              tooltip: '立即同步',
+              onPressed: () => _syncOnce(tellUser: true)),
           IconButton(icon: const Icon(Icons.settings), tooltip: '设置', onPressed: _openSettings),
         ],
       ),
