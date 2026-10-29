@@ -1,6 +1,21 @@
 
 # 更新日志
 
+## v1.5.2 — 2026-10-29（仅安卓 APP + 服务端版本号）
+
+### 修复（安卓 APP）
+
+- **通知栏「暂停」终极修复**（三层叠加问题）：
+  ①FLN 18 + AGP 8 的 manifest 合并不会把通知按钮的 3 个 receiver 并进 APK
+  ——点击「暂停」发的广播没有任何组件接收；已在主 manifest 手动声明。
+  ②FLN 的按钮事件只被后台 isolate 订阅，主界面 isolate 从不监听
+  ——事件全部积压丢失；主 isolate 已主动订阅 FLN actions EventChannel
+  （onListen 自动回放缓存事件）。
+  ③FLN 原生 cancel 必现 Gson 崩溃（Missing type parameter）——已全部
+  try/catch 兜底。
+  端到端验证：广播→停表→WS 同步到桌面全链路秒级完成。
+- 自建 PauseActionReceiver 直连通道作为双保险（进程存活时零延迟直通）。
+
 ## v1.5.1 — 2026-10-29（仅安卓 APP + 服务端版本号）
 
 ### 修复（安卓 APP）
