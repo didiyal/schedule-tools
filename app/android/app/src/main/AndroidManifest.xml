@@ -37,7 +37,28 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
-    </application>
+            <!-- FLN 18 + AGP8 manifest 合并缺陷：三个 receiver 不会自动并入，手动声明
+             （缺了它们，通知按钮的广播没有任何组件接收——通知栏「暂停」点击无效的真凶） -->
+        <receiver android:name="com.dexterous.flutterlocalnotifications.ActionBroadcastReceiver"
+            android:exported="false" />
+        <!-- 自建直连通道：通知暂停 → Dart（绕开 FLN engine 桥接的不稳定路径） -->
+        <receiver android:name="com.shiwujie.todo_timer.PauseActionReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.shiwujie.todo_timer.PAUSE_ACTION"/>
+            </intent-filter>
+        </receiver>
+        <receiver android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationReceiver"
+            android:exported="false" />
+        <receiver android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationBootReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED"/>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED"/>
+                <action android:name="android.intent.action.QUICKBOOT_POWERON"/>
+            </intent-filter>
+        </receiver>
+</application>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and
          https://developer.android.com/reference/android/content/Intent#ACTION_PROCESS_TEXT.

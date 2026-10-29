@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:path_provider/path_provider.dart';
@@ -51,6 +52,27 @@ class RunNotifier {
       // 不等待授权结果——系统弹窗挂起会阻塞 init 的调用方（boot 里的连接流程）
       unawaited(android?.requestNotificationsPermission());
     } catch (_) {}
+
+    // FLN 的 action 事件走静态 ActionEventSink——Android 端只在后台 isolate 的
+    // callbackDispatcher 里订阅，主 isolate 从不 listen ⇒ 按钮事件全部积压丢失。
+    // 主 isolate 主动 listen：onListen 时 sink 会回放缓存事件，后续实时直通。
+    const actionsChannel =
+        EventChannel('dexterous.com/flutter/local_notifications/actions');
+    actionsChannel.receiveBroadcastStream().listen((event) {
+      if (event is Map) {
+        final id = _parseAction(event['actionId'] as String?);
+        if (id != null) _onPauseAction?.call(id);
+      }
+    }, onError: (_) {});
+
+    // 自建 PauseActionReceiver 直连通道（绕开 FLN 的引擎桥接）
+    const pauseChannel = MethodChannel('todo_timer/pause_action');
+    pauseChannel.setMethodCallHandler((call) async {
+      if (call.method == 'pause' && call.arguments is String) {
+        _onPauseAction?.call(call.arguments as String);
+      }
+      return null;
+    });
   }
 
   void _onResponse(NotificationResponse r) {
