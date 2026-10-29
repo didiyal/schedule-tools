@@ -95,16 +95,23 @@ class RunNotifier {
           actions: [AndroidNotificationAction(_actionOf(t.id), '暂停')],
         ),
       );
-      await _plugin.show(notifId, '⏱ ${t.text}', '计时中', details);
-      _shown[t.id] = (t.lastStartedAt, t.text);
+      try {
+        await _plugin.show(notifId, '⏱ ${t.text}', '计时中', details);
+        _shown[t.id] = (t.lastStartedAt, t.text);
+      } catch (e) {
+        debugPrint('[TodoTimer] notif show failed: $e');
+      }
     }
   }
 
   /// App 启动时清残留：重启后 _shown 为空，但通知 id 确定性可算，
   /// 非 running 任务的旧通知逐个清掉。
+  /// cancel 偶发 PlatformException——必须逐条兜住，否则会炸断调用方
+  /// 的 boot 流程（自动连接根本不执行，用户看到"要重新配对"）。
   Future<void> clearStale(List<Todo> todos) async {
     for (final t in todos) {
-      if (!(t.running && !t.completed)) await _plugin.cancel(_notifIdFor(t.id));
+      if (t.running && !t.completed) continue;
+      try { await _plugin.cancel(_notifIdFor(t.id)); } catch (_) {}
     }
   }
 }
