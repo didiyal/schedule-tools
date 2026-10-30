@@ -17,7 +17,11 @@ public static class DayRollover
     /// <summary>对整表执行顺延。返回 (是否产生变更, 变更说明)。</summary>
     public static (bool Changed, string Summary) Run(List<TodoItem> todos, string today)
     {
-        var byId = todos.ToDictionary(t => t.Id, t => t);
+        // 多端同步历史可能产生重复 id（LWW 各端造号撞号）——取首个，重复项跳过，
+        // 否则 ToDictionary 直接崩掉启动（2026-10-30 用户报开发版启动闪退 Key:213）
+        var byId = new Dictionary<string, TodoItem>();
+        foreach (var t in todos)
+            if (!byId.ContainsKey(t.Id)) byId[t.Id] = t;
         var parents = TaskTree.Normalize(byId.ToDictionary(kv => kv.Key, kv => kv.Value.Parent));
         foreach (var t in todos) t.Parent = parents[t.Id];
         var chMap = TaskTree.ChildrenMap(parents);
