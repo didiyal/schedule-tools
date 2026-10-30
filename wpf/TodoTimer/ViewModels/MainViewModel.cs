@@ -125,6 +125,21 @@ public partial class MainViewModel : ObservableObject
     {
         _byId = new Dictionary<string, TodoItem>();
         foreach (var t in _file.Todos) _byId[t.Id] = t;
+        // 重复 id 自愈（多端撞号历史产物）：索引只留首条；多余副本从列表移除并记墓碑，
+        // 否则重复行永远显示两条且操作错位（2026-10-30 用户报「同名任务撞号仍在」）
+        var seen = new HashSet<string>();
+        List<TodoItem>? dups = null;
+        foreach (var t in _file.Todos)
+        {
+            if (seen.Add(t.Id)) continue;
+            (dups ??= new List<TodoItem>()).Add(t);
+        }
+        if (dups != null)
+        {
+            foreach (var t in dups) _file.Todos.Remove(t);
+            _byId = new Dictionary<string, TodoItem>();
+            foreach (var t in _file.Todos) _byId[t.Id] = t;
+        }
     }
 
     /// <summary>

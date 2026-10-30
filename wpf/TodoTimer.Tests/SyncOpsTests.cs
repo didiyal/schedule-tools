@@ -18,6 +18,36 @@ public class SyncOpsTests
         return new Remote(id, ua, del, json);
     }
 
+
+
+    // ── 撞号回归（2026-10-30 用户报：桌面+手机同刻各造 id=213，merge 后并存两条）──
+
+    [Fact]
+    public void AddRemote_WhenDuplicateIdExists_CollapsesExtras()
+    {
+        var todos = new List<TodoItem>
+        {
+            Todo("213", "openit 管理"),
+            Todo("213", "openit 管理"),   // 历史撞号产物：同 id 两条
+        };
+        var remote = new TodoItem { Id = "213", Text = "openit 管理", Completed = true };
+        var ok = SyncOps.ApplyToList(todos,
+            new Remote("213", 999, null, JsonSerializer.SerializeToElement(remote)));
+        Assert.True(ok);
+        Assert.Single(todos.Where(t => t.Id == "213"));          // 只剩一条
+        Assert.True(todos.Single(t => t.Id == "213").Completed); // 内容=远端
+    }
+
+    [Fact]
+    public void AddRemote_NewId_StillAppends()
+    {
+        var todos = new List<TodoItem> { Todo("1", "本地") };
+        var remote = new TodoItem { Id = "2", Text = "远端新任务" };
+        SyncOps.ApplyToList(todos,
+            new Remote("2", 999, null, JsonSerializer.SerializeToElement(remote)));
+        Assert.Equal(2, todos.Count);                            // 正常新增不受影响
+    }
+
     // ── 指纹 ──
 
     [Fact]

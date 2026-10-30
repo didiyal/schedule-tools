@@ -70,8 +70,16 @@ public static class SyncOps
                 if (item is null) return false;   // 坏 JSON 丢弃，不污染本地
                 item.Id = remote.Id;
                 item.UpdatedAt = remote.UpdatedAt;
-                if (local is null) todos.Add(item);
-                else todos[todos.IndexOf(local)] = item;
+                // 同 id 可能已有多条（历史撞号产物）——追加前先清掉多余副本，
+                // 只保留最后一条位置写入远端内容（2026-10-30 用户报：213 双条并存）
+                var first = todos.FindIndex(t => t.Id == remote.Id);
+                if (first < 0) todos.Add(item);
+                else
+                {
+                    for (var i = todos.Count - 1; i > first; i--)
+                        if (todos[i].Id == remote.Id) todos.RemoveAt(i);
+                    todos[first] = item;
+                }
                 return true;
             default:
                 return false;
